@@ -1,0 +1,15 @@
+# Copy to groups.yml and set real tokens (≥ 24 characters each).
+# groups.yml is gitignored — never commit live tokens.
+#
+#   cp config/groups.example.yml config/groups.yml
+#   openssl rand -hex 16   # generate a token
+#
+# Max 5 groups. Each group's members share the same token.
+
+groups:
+  - id: home
+    name: Familie
+    token: "replace-with-at-least-24-chars"
+  - id: wg
+    name: WG
+    token: "another-token-at-least-24ch"

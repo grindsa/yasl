@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+/*
+  SmithHönig „16. Cherry Blossoms Color Palette“
+  https://smithhonig.com/blogs/blog/18-home-decor-color-palettes-inspired-by-japan
+  Swatches: mist grey #e0e0e0 · sky #7dbcc5 · warm blush #c98e70 · charcoal #5e5e5e
+*/
+
+:root {
+  --background: #f3f3f3;
+  --background-accent: #e0e0e0;
+  --foreground: #3a3a3a;
+  --muted: #5e5e5e;
+  --accent: #c98e70;
+  --on-accent: #faf8f6;
+  --accent-soft: #e8d0c4;
+  --sky: #7dbcc5;
+  --surface: color-mix(in oklab, var(--foreground) 5%, transparent);
+  --hairline: color-mix(in oklab, var(--foreground) 12%, transparent);
+  --danger: #9b2f1a;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-background-accent: var(--background-accent);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-sky: var(--sky);
+  --color-surface: var(--surface);
+  --color-hairline: var(--hairline);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-outfit);
+}
+
+body {
+  background:
+    radial-gradient(
+      120% 80% at 10% -10%,
+      color-mix(in oklab, var(--background-accent) 85%, transparent),
+      transparent 55%
+    ),
+    radial-gradient(
+      80% 55% at 100% 0%,
+      color-mix(in oklab, var(--sky) 22%, transparent),
+      transparent 50%
+    ),
+    radial-gradient(
+      60% 40% at 0% 100%,
+      color-mix(in oklab, var(--accent) 12%, transparent),
+      transparent 45%
+    ),
+    var(--background);
+  background-attachment: fixed;
+  color: var(--foreground);
+}

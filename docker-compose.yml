@@ -1,0 +1,37 @@
+services:
+  yasl:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_TIME: ${BUILD_TIME:-}
+    image: yasl:local
+    container_name: yasl
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+      - DATA_DIR=/app/data
+      - GROUPS_CONFIG_FILE=/app/config/groups.yml
+    volumes:
+      - ./config:/app/config:ro
+      - /srv/data/yasl:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/.next/cache
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    pids_limit: 256
+    networks:
+      - proxy
+    expose:
+      - "3000"
+
+networks:
+  proxy:
+    external: true
