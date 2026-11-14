@@ -416,6 +416,41 @@ export async function removeItemFromList(
   });
 }
 
+/** Reorder items; `order` must be a permutation of current item ids. */
+export async function reorderListItems(
+  groupId: string,
+  listId: string,
+  order: string[],
+): Promise<ShoppingList> {
+  if (!Array.isArray(order) || order.length === 0) {
+    throw new StoreError("order_required", 400);
+  }
+
+  return withGroupLock(groupId, async () => {
+    const list = await loadList(groupId, listId);
+    if (!list) throw new StoreError("not_found", 404);
+
+    if (order.length !== list.items.length) {
+      throw new StoreError("order_mismatch", 400);
+    }
+    const byId = new Map(list.items.map((i) => [i.id, i]));
+    if (new Set(order).size !== order.length) {
+      throw new StoreError("order_mismatch", 400);
+    }
+    const next: ListItem[] = [];
+    for (const id of order) {
+      const item = byId.get(id);
+      if (!item) throw new StoreError("order_mismatch", 400);
+      next.push(item);
+    }
+    list.items = next;
+    list.revision += 1;
+    list.updatedAt = new Date().toISOString();
+    await saveList(groupId, list);
+    return list;
+  });
+}
+
 export async function searchArchive(
   groupId: string,
   query: string,

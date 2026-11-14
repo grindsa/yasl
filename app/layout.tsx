@@ -1,5 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Outfit } from "next/font/google";
+import {
+  ThemeProvider,
+  themeBootScript,
+} from "@/components/theme-provider";
 import "./globals.css";
 
 const outfit = Outfit({
@@ -26,13 +30,25 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#c98e70",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#c98e70" },
+    { media: "(prefers-color-scheme: dark)", color: "#1a1c1d" },
+  ],
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="de" className={`${outfit.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col font-sans">{children}</body>
+    <html
+      lang="de"
+      className={`${outfit.variable} h-full antialiased`}
+      suppressHydrationWarning
+    >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
+      </head>
+      <body className="min-h-full flex flex-col font-sans">
+        <ThemeProvider>{children}</ThemeProvider>
+      </body>
     </html>
   );
 }

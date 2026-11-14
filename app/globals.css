@@ -15,9 +15,27 @@
   --on-accent: #faf8f6;
   --accent-soft: #e8d0c4;
   --sky: #7dbcc5;
+  --panel: color-mix(in oklab, #ffffff 72%, transparent);
+  --panel-strong: color-mix(in oklab, #ffffff 88%, transparent);
   --surface: color-mix(in oklab, var(--foreground) 5%, transparent);
   --hairline: color-mix(in oklab, var(--foreground) 12%, transparent);
   --danger: #9b2f1a;
+}
+
+html[data-theme="dark"] {
+  --background: #1a1c1d;
+  --background-accent: #2a2e30;
+  --foreground: #e8e8e8;
+  --muted: #a8b0b2;
+  --accent: #d4a48a;
+  --on-accent: #1a1c1d;
+  --accent-soft: #4a3a34;
+  --sky: #8ec9d0;
+  --panel: color-mix(in oklab, #ffffff 7%, transparent);
+  --panel-strong: color-mix(in oklab, #ffffff 12%, transparent);
+  --surface: color-mix(in oklab, var(--foreground) 8%, transparent);
+  --hairline: color-mix(in oklab, var(--foreground) 16%, transparent);
+  --danger: #e07a6a;
 }
 
 @theme inline {
@@ -29,6 +47,8 @@
   --color-on-accent: var(--on-accent);
   --color-accent-soft: var(--accent-soft);
   --color-sky: var(--sky);
+  --color-panel: var(--panel);
+  --color-panel-strong: var(--panel-strong);
   --color-surface: var(--surface);
   --color-hairline: var(--hairline);
   --color-danger: var(--danger);

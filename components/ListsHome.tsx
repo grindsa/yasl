@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 type ListSummary = {
   id: string;
@@ -25,6 +26,25 @@ const LIST_TONES = [
 
 function toneForList(index: number) {
   return LIST_TONES[index % LIST_TONES.length];
+}
+
+function LogoutIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <path d="M16 17l5-5-5-5" />
+      <path d="M21 12H9" />
+    </svg>
+  );
 }
 
 export function ListsHome({ groupName }: { groupName: string }) {
@@ -97,23 +117,24 @@ export function ListsHome({ groupName }: { groupName: string }) {
 
   return (
     <main className="mx-auto flex w-full max-w-lg flex-1 flex-col px-5 py-6">
-      <header className="mb-8 flex items-start justify-between gap-4">
+      <header className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <p className="text-3xl font-semibold tracking-tight text-accent">
-            YASL
-          </p>
+          <h1 className="text-xl font-semibold">Meine Einkaufszettel</h1>
           <p className="mt-1 text-sm text-muted">Gruppe {groupName}</p>
         </div>
-        <button
-          type="button"
-          onClick={() => void logout()}
-          className="text-sm text-muted underline-offset-2 hover:underline"
-        >
-          Abmelden
-        </button>
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <button
+            type="button"
+            onClick={() => void logout()}
+            className="rounded-lg p-2 text-muted transition hover:bg-surface hover:text-foreground"
+            aria-label="Abmelden"
+            title="Abmelden"
+          >
+            <LogoutIcon className="h-5 w-5" />
+          </button>
+        </div>
       </header>
-
-      <h1 className="mb-4 text-xl font-semibold">Meine Einkaufszettel</h1>
 
       {error ? (
         <p className="mb-4 text-sm text-danger" role="alert">
@@ -130,11 +151,11 @@ export function ListsHome({ groupName }: { groupName: string }) {
 
       <ul className="mb-6 flex flex-col gap-2.5">
         {lists === null ? (
-          <li className="rounded-2xl border border-hairline bg-white/60 px-4 py-6 text-sm text-muted">
+          <li className="rounded-2xl border border-hairline bg-panel px-4 py-6 text-sm text-muted">
             Laden…
           </li>
         ) : lists.length === 0 ? (
-          <li className="rounded-2xl border border-hairline bg-white/60 px-4 py-6 text-sm text-muted">
+          <li className="rounded-2xl border border-hairline bg-panel px-4 py-6 text-sm text-muted">
             Noch keine Listen — lege die erste an.
           </li>
         ) : (
@@ -168,7 +189,7 @@ export function ListsHome({ groupName }: { groupName: string }) {
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           placeholder="Name der neuen Liste"
-          className="min-w-0 flex-1 rounded-xl border border-hairline bg-white/70 px-3 py-3 text-base outline-none ring-accent focus:ring-2"
+          className="min-w-0 flex-1 rounded-xl border border-hairline bg-panel-strong px-3 py-3 text-base outline-none ring-accent focus:ring-2"
         />
         <button
           type="submit"

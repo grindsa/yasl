@@ -14,6 +14,8 @@ import {
   BarcodeScanner,
   type ScanFeedback,
 } from "@/components/BarcodeScanner";
+import { SortableListItems } from "@/components/SortableListItems";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { unlockScanAudio } from "@/lib/scan-feedback";
 
 type ListItem = { id: string; name: string; addedAt: string };
@@ -111,11 +113,13 @@ export function ListDetail({ listId }: { listId: string }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const scanBusyRef = useRef(false);
+  const draggingRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
     const fetchOnce = async (silent: boolean) => {
       try {
+        if (silent && draggingRef.current) return;
         const headers: HeadersInit = {};
         if (revisionRef.current != null) {
           headers["If-None-Match"] = `"${revisionRef.current}"`;
@@ -375,6 +379,30 @@ export function ListDetail({ listId }: { listId: string }) {
     }
   }
 
+  async function reorderItems(nextItems: ListItem[]) {
+    const prev = list;
+    if (!prev) return;
+    setList({ ...prev, items: nextItems });
+    try {
+      const res = await fetch(`/api/lists/${listId}/items`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order: nextItems.map((i) => i.id) }),
+      });
+      if (!res.ok) {
+        if (prev) setList(prev);
+        setError("Reihenfolge konnte nicht gespeichert werden.");
+        return;
+      }
+      const data = (await res.json()) as { list: ShoppingList };
+      revisionRef.current = data.list.revision;
+      setList(data.list);
+    } catch {
+      if (prev) setList(prev);
+      setError("Reihenfolge konnte nicht gespeichert werden.");
+    }
+  }
+
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     const name = query.trim();
@@ -473,7 +501,8 @@ export function ListDetail({ listId }: { listId: string }) {
           >
             ← Listen
           </Link>
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex shrink-0 items-center gap-2">
+            <ThemeToggle />
             {!renaming && list ? (
               <button
                 type="button"
@@ -510,7 +539,7 @@ export function ListDetail({ listId }: { listId: string }) {
                 if (e.key === "Escape") cancelRename();
               }}
               disabled={renamingBusy}
-              className="min-w-0 flex-1 rounded-xl border border-hairline bg-white/70 px-3 py-2 text-xl font-semibold outline-none ring-accent focus:ring-2"
+              className="min-w-0 flex-1 rounded-xl border border-hairline bg-panel-strong px-3 py-2 text-xl font-semibold outline-none ring-accent focus:ring-2"
               aria-label="Neuer Listenname"
             />
             <div className="flex gap-2">
@@ -552,10 +581,10 @@ export function ListDetail({ listId }: { listId: string }) {
             onKeyDown={onKeyDown}
             placeholder="Artikel suchen oder hinzufügen"
             autoComplete="off"
-            className="w-full rounded-xl border border-hairline bg-white/70 px-4 py-3 text-base outline-none ring-accent focus:ring-2"
+            className="w-full rounded-xl border border-hairline bg-panel-strong px-4 py-3 text-base outline-none ring-accent focus:ring-2"
           />
           {suggestions.length > 0 && query.trim() ? (
-            <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-hairline bg-white shadow-sm">
+            <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-hairline bg-panel-strong shadow-sm">
               {suggestions.map((s) => (
                 <li key={s.id}>
                   <button
@@ -578,7 +607,7 @@ export function ListDetail({ listId }: { listId: string }) {
             setScanFeedback(null);
             setScannerOpen(true);
           }}
-          className="shrink-0 rounded-xl border border-hairline bg-white/70 p-3 text-accent transition hover:bg-accent-soft/40"
+          className="shrink-0 rounded-xl border border-hairline bg-panel-strong p-3 text-accent transition hover:bg-accent-soft/40"
           aria-label="Barcode scannen"
           title="Barcode scannen"
         >
@@ -589,7 +618,7 @@ export function ListDetail({ listId }: { listId: string }) {
       {pendingBarcode ? (
         <form
           onSubmit={(e) => void submitManualBarcodeName(e)}
-          className="mb-4 rounded-2xl border border-hairline bg-white/70 p-4"
+          className="mb-4 rounded-2xl border border-hairline bg-panel-strong p-4"
         >
           <p className="mb-2 text-sm text-muted">
             Unbekannter Code{" "}
@@ -602,7 +631,7 @@ export function ListDetail({ listId }: { listId: string }) {
               value={manualName}
               onChange={(e) => setManualName(e.target.value)}
               placeholder="Artikelname"
-              className="min-w-0 flex-1 rounded-xl border border-hairline bg-white px-3 py-2 outline-none ring-accent focus:ring-2"
+              className="min-w-0 flex-1 rounded-xl border border-hairline bg-panel-strong px-3 py-2 outline-none ring-accent focus:ring-2"
               autoFocus
             />
             <button
@@ -642,30 +671,31 @@ export function ListDetail({ listId }: { listId: string }) {
         </p>
       ) : null}
 
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
-        Auf der Liste
-      </p>
-      <ul className="mb-8 divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-white/60">
+      <section className="mb-8 rounded-2xl border-2 border-sky bg-panel p-3">
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-sky">
+          Auf der Liste
+        </h2>
         {!list ? (
-          <li className="px-4 py-5 text-sm text-muted">Laden…</li>
+          <ul className="overflow-hidden rounded-xl bg-panel">
+            <li className="px-4 py-5 text-sm text-muted">Laden…</li>
+          </ul>
         ) : list.items.length === 0 ? (
-          <li className="px-4 py-5 text-sm text-muted">
-            Noch leer — tippe oben einen Artikel ein.
-          </li>
-        ) : (
-          list.items.map((item) => (
-            <li key={item.id}>
-              <button
-                type="button"
-                onClick={() => void removeItem(item.id)}
-                className="flex w-full px-4 py-3.5 text-left text-base transition hover:bg-accent-soft/40 active:bg-accent-soft/60"
-              >
-                {item.name}
-              </button>
+          <ul className="overflow-hidden rounded-xl bg-panel">
+            <li className="px-4 py-5 text-sm text-muted">
+              Noch leer — tippe oben einen Artikel ein.
             </li>
-          ))
+          </ul>
+        ) : (
+          <SortableListItems
+            items={list.items}
+            onRemove={(id) => void removeItem(id)}
+            onReorder={(next) => void reorderItems(next)}
+            onDragStateChange={(dragging) => {
+              draggingRef.current = dragging;
+            }}
+          />
         )}
-      </ul>
+      </section>
 
       <section>
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
@@ -674,17 +704,17 @@ export function ListDetail({ listId }: { listId: string }) {
         {top.length === 0 ? (
           <p className="text-sm text-muted">Noch keine Statistik.</p>
         ) : (
-          <ul className="divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-white/40">
+          <ul className="divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-panel">
             {top.map((item) => (
               <li key={item.id}>
                 <button
                   type="button"
                   disabled={busy || !!list?.items.some((i) => i.id === item.id)}
                   onClick={() => void addItem({ id: item.id })}
-                  className="flex w-full items-center justify-between px-4 py-3 text-left disabled:opacity-40"
+                  className="flex w-full items-center justify-between px-4 py-3 text-left text-xs disabled:opacity-40"
                 >
                   <span>{item.name}</span>
-                  <span className="text-sm text-muted">{item.addCount}×</span>
+                  <span className="text-xs text-muted">{item.addCount}×</span>
                 </button>
               </li>
             ))}

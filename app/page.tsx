@@ -3,6 +3,7 @@ import { connection } from "next/server";
 import { getSessionGroup, isAuthenticated } from "@/lib/auth";
 import { LoginForm } from "@/components/LoginForm";
 import { ListsHome } from "@/components/ListsHome";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 async function HomeContent() {
   await connection();
@@ -16,11 +17,16 @@ async function HomeContent() {
 
 function HomeFallback() {
   return (
-    <main className="mx-auto flex min-h-full w-full max-w-md flex-1 flex-col justify-center px-6 py-12">
-      <p className="text-center text-4xl font-semibold tracking-tight text-accent">
-        YASL
-      </p>
-      <p className="mt-4 text-center text-sm text-muted">Laden…</p>
+    <main className="relative mx-auto flex min-h-full w-full max-w-md flex-1 flex-col px-6 py-12">
+      <div className="absolute right-6 top-6 z-10">
+        <ThemeToggle />
+      </div>
+      <div className="flex flex-1 flex-col justify-center">
+        <p className="text-center text-4xl font-semibold tracking-tight text-accent">
+          YASL
+        </p>
+        <p className="mt-4 text-center text-sm text-muted">Laden…</p>
+      </div>
     </main>
   );
 }

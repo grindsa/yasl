@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/with-auth";
 import { readJsonBody } from "@/lib/request-guard";
-import { addItemToList, StoreError } from "@/lib/store";
+import { addItemToList, reorderListItems, StoreError } from "@/lib/store";
 import { lookupOpenFoodFacts } from "@/lib/open-food-facts";
 
 export const POST = withAuth(async function POST(request, ctx, routeCtx) {
@@ -67,6 +67,29 @@ export const POST = withAuth(async function POST(request, ctx, routeCtx) {
       { ok: true, list: result.list, item: result.item, source: result.source },
       { status: 201 },
     );
+  } catch (err) {
+    if (err instanceof StoreError) {
+      return NextResponse.json(
+        { ok: false, error: err.code },
+        { status: err.status },
+      );
+    }
+    throw err;
+  }
+});
+
+/** Body: `{ order: string[] }` — permutation of current item ids. */
+export const PUT = withAuth(async function PUT(request, ctx, routeCtx) {
+  const params = await routeCtx!.params;
+  const parsed = await readJsonBody(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body as { order?: unknown } | null;
+  const order = Array.isArray(body?.order)
+    ? body.order.filter((id): id is string => typeof id === "string")
+    : [];
+  try {
+    const list = await reorderListItems(ctx.groupId, params.id, order);
+    return NextResponse.json({ ok: true, list });
   } catch (err) {
     if (err instanceof StoreError) {
       return NextResponse.json(
