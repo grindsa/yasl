@@ -10,7 +10,11 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
-import { BarcodeScanner } from "@/components/BarcodeScanner";
+import {
+  BarcodeScanner,
+  type ScanFeedback,
+} from "@/components/BarcodeScanner";
+import { unlockScanAudio } from "@/lib/scan-feedback";
 
 type ListItem = { id: string; name: string; addedAt: string };
 type ShoppingList = {
@@ -100,7 +104,7 @@ export function ListDetail({ listId }: { listId: string }) {
   const [draftName, setDraftName] = useState("");
   const [renamingBusy, setRenamingBusy] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
-  const [scanStatus, setScanStatus] = useState<string | null>(null);
+  const [scanFeedback, setScanFeedback] = useState<ScanFeedback>(null);
   const [pendingBarcode, setPendingBarcode] = useState<string | null>(null);
   const [manualName, setManualName] = useState("");
   const revisionRef = useRef<number | null>(null);
@@ -254,7 +258,11 @@ export function ListDetail({ listId }: { listId: string }) {
     async (barcode: string) => {
       if (scanBusyRef.current) return;
       scanBusyRef.current = true;
-      setScanStatus("Wird hinzugefügt…");
+      setScanFeedback({
+        kind: "pending",
+        title: "Code erkannt…",
+        detail: barcode,
+      });
       try {
         const res = await fetch(`/api/lists/${listId}/items`, {
           method: "POST",
@@ -268,26 +276,50 @@ export function ListDetail({ listId }: { listId: string }) {
           item?: { name?: string };
         };
         if (res.status === 409) {
-          setScanStatus("Schon auf der Liste");
+          setScanFeedback({
+            kind: "warn",
+            title: "Schon auf der Liste",
+            detail: barcode,
+          });
+          window.setTimeout(() => {
+            setScanFeedback((prev) => (prev?.kind === "warn" ? null : prev));
+          }, 2000);
           return;
         }
         if (res.status === 404 && data.error === "needs_name") {
           setPendingBarcode(barcode);
           setManualName("");
-          setScanStatus(null);
+          setScanFeedback(null);
           setScannerOpen(false);
           return;
         }
         if (!res.ok || !data.list) {
-          setScanStatus("Nicht erkannt — erneut versuchen");
+          setScanFeedback({
+            kind: "error",
+            title: "Nicht hinzugefügt",
+            detail: "Bitte erneut scannen",
+          });
           return;
         }
         revisionRef.current = data.list.revision;
         setList(data.list);
         setTopTick((n) => n + 1);
-        setScanStatus(`✓ ${data.item?.name ?? "Hinzugefügt"}`);
+        setScanFeedback({
+          kind: "success",
+          title: data.item?.name ?? "Hinzugefügt",
+          detail: "Auf dem Einkaufszettel",
+        });
+        window.setTimeout(() => {
+          setScanFeedback((prev) =>
+            prev?.kind === "success" ? null : prev,
+          );
+        }, 2200);
       } catch {
-        setScanStatus("Fehler — erneut versuchen");
+        setScanFeedback({
+          kind: "error",
+          title: "Fehler",
+          detail: "Bitte erneut scannen",
+        });
       } finally {
         window.setTimeout(() => {
           scanBusyRef.current = false;
@@ -307,8 +339,15 @@ export function ListDetail({ listId }: { listId: string }) {
     if (result.ok) {
       setPendingBarcode(null);
       setManualName("");
+      setScanFeedback({
+        kind: "success",
+        title: result.itemName ?? "Hinzugefügt",
+        detail: "Auf dem Einkaufszettel",
+      });
       setScannerOpen(true);
-      setScanStatus(`✓ ${result.itemName ?? "Hinzugefügt"}`);
+      window.setTimeout(() => {
+        setScanFeedback((prev) => (prev?.kind === "success" ? null : prev));
+      }, 2200);
     }
   }
 
@@ -535,7 +574,8 @@ export function ListDetail({ listId }: { listId: string }) {
         <button
           type="button"
           onClick={() => {
-            setScanStatus(null);
+            void unlockScanAudio();
+            setScanFeedback(null);
             setScannerOpen(true);
           }}
           className="shrink-0 rounded-xl border border-hairline bg-white/70 p-3 text-accent transition hover:bg-accent-soft/40"
@@ -590,10 +630,10 @@ export function ListDetail({ listId }: { listId: string }) {
         open={scannerOpen}
         onClose={() => {
           setScannerOpen(false);
-          setScanStatus(null);
+          setScanFeedback(null);
         }}
         onDetected={onBarcodeDetected}
-        statusMessage={scanStatus}
+        feedback={scanFeedback}
       />
 
       {error ? (
