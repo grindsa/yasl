@@ -29,9 +29,13 @@ services:
     pids_limit: 256
     networks:
       - proxy
+      - egress
     expose:
       - "3000"
 
 networks:
   proxy:
     external: true
+  # Outbound HTTPS (Open Food Facts barcode lookup)
+  egress:
+    driver: bridge

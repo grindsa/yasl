@@ -288,22 +288,68 @@ export async function getList(
   return withGroupLock(groupId, () => loadList(groupId, listId));
 }
 
+function normalizeBarcode(raw: string): string {
+  return raw.replace(/\D/g, "");
+}
+
+export async function findArchiveByBarcode(
+  groupId: string,
+  barcodeRaw: string,
+): Promise<ArchiveItem | null> {
+  const barcode = normalizeBarcode(barcodeRaw);
+  if (!barcode) return null;
+  return withGroupLock(groupId, async () => {
+    const archive = await loadArchive(groupId);
+    return (
+      archive.find((a) => a.barcode && normalizeBarcode(a.barcode) === barcode) ??
+      null
+    );
+  });
+}
+
 export async function addItemToList(
   groupId: string,
   listId: string,
-  input: { name?: string; id?: string },
-): Promise<{ list: ShoppingList; item: ListItem }> {
+  input: { name?: string; id?: string; barcode?: string },
+): Promise<{ list: ShoppingList; item: ListItem; source?: string }> {
   return withGroupLock(groupId, async () => {
     const list = await loadList(groupId, listId);
     if (!list) throw new StoreError("not_found", 404);
 
     const archive = await loadArchive(groupId);
     const now = new Date().toISOString();
+    const barcode = input.barcode
+      ? normalizeBarcode(input.barcode)
+      : undefined;
+    if (input.barcode && (!barcode || barcode.length < 8)) {
+      throw new StoreError("invalid_barcode", 400);
+    }
 
     let archiveItem: ArchiveItem | undefined;
+    let source = "archive";
+
     if (input.id) {
       archiveItem = archive.find((a) => a.id === input.id);
       if (!archiveItem) throw new StoreError("archive_not_found", 404);
+    } else if (barcode) {
+      archiveItem = archive.find(
+        (a) => a.barcode && normalizeBarcode(a.barcode) === barcode,
+      );
+      if (!archiveItem) {
+        const name = input.name?.trim() ?? "";
+        if (!name) throw new StoreError("barcode_unknown", 404);
+        const taken = new Set(archive.map((a) => a.id));
+        const id = uniqueId(slugify(name), taken);
+        archiveItem = {
+          id,
+          name,
+          addCount: 0,
+          lastAddedAt: now,
+          barcode,
+        };
+        archive.push(archiveItem);
+        source = "new";
+      }
     } else {
       const name = input.name?.trim() ?? "";
       if (!name) throw new StoreError("name_required", 400);
@@ -320,11 +366,17 @@ export async function addItemToList(
           barcode: null,
         };
         archive.push(archiveItem);
+        source = "new";
       }
     }
 
     if (list.items.some((i) => i.id === archiveItem!.id)) {
       throw new StoreError("already_on_list", 409);
+    }
+
+    // Attach barcode to existing archive item if scanned and missing.
+    if (barcode && !archiveItem.barcode) {
+      archiveItem.barcode = barcode;
     }
 
     archiveItem.addCount += 1;
@@ -340,7 +392,7 @@ export async function addItemToList(
     list.revision += 1;
     list.updatedAt = now;
     await saveList(groupId, list);
-    return { list, item };
+    return { list, item, source };
   });
 }
 

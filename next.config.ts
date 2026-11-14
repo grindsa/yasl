@@ -9,6 +9,7 @@ const contentSecurityPolicy = [
   "img-src 'self' data: blob:",
   "font-src 'self'",
   "connect-src 'self'",
+  "media-src 'self' blob:",
   "object-src 'none'",
   "frame-ancestors 'none'",
   "base-uri 'none'",
@@ -23,7 +24,7 @@ const securityHeaders = [
   {
     key: "Permissions-Policy",
     value:
-      "geolocation=(), camera=(), microphone=(), payment=(), usb=()",
+      "geolocation=(), camera=(self), microphone=(), payment=(), usb=()",
   },
   { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
 ];

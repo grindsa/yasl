@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
   type FormEvent,
   type KeyboardEvent,
 } from "react";
+import { BarcodeScanner } from "@/components/BarcodeScanner";
 
 type ListItem = { id: string; name: string; addedAt: string };
 type ShoppingList = {
@@ -64,6 +66,27 @@ function TrashIcon({ className }: { className?: string }) {
   );
 }
 
+function ScanIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M3 7V5a2 2 0 0 1 2-2h2" />
+      <path d="M17 3h2a2 2 0 0 1 2 2v2" />
+      <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+      <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+      <path d="M7 12h10" />
+    </svg>
+  );
+}
+
 export function ListDetail({ listId }: { listId: string }) {
   const router = useRouter();
   const [list, setList] = useState<ShoppingList | null>(null);
@@ -76,9 +99,14 @@ export function ListDetail({ listId }: { listId: string }) {
   const [renaming, setRenaming] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [renamingBusy, setRenamingBusy] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scanStatus, setScanStatus] = useState<string | null>(null);
+  const [pendingBarcode, setPendingBarcode] = useState<string | null>(null);
+  const [manualName, setManualName] = useState("");
   const revisionRef = useRef<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const scanBusyRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -175,7 +203,11 @@ export function ListDetail({ listId }: { listId: string }) {
     };
   }, [query]);
 
-  async function addItem(payload: { name?: string; id?: string }) {
+  async function addItem(payload: {
+    name?: string;
+    id?: string;
+    barcode?: string;
+  }): Promise<{ ok: boolean; error?: string; itemName?: string }> {
     setBusy(true);
     setError(null);
     try {
@@ -188,14 +220,20 @@ export function ListDetail({ listId }: { listId: string }) {
         ok?: boolean;
         error?: string;
         list?: ShoppingList;
+        item?: { name?: string };
+        barcode?: string;
+        reason?: string;
       };
       if (res.status === 409) {
         setError("Artikel ist schon auf der Liste.");
-        return;
+        return { ok: false, error: "already_on_list" };
+      }
+      if (res.status === 404 && data.error === "needs_name") {
+        return { ok: false, error: "needs_name" };
       }
       if (!res.ok || !data.list) {
         setError("Artikel konnte nicht hinzugefügt werden.");
-        return;
+        return { ok: false, error: data.error ?? "failed" };
       }
       revisionRef.current = data.list.revision;
       setList(data.list);
@@ -203,10 +241,74 @@ export function ListDetail({ listId }: { listId: string }) {
       setSuggestions([]);
       setTopTick((n) => n + 1);
       inputRef.current?.focus();
+      return { ok: true, itemName: data.item?.name };
     } catch {
       setError("Artikel konnte nicht hinzugefügt werden.");
+      return { ok: false, error: "failed" };
     } finally {
       setBusy(false);
+    }
+  }
+
+  const onBarcodeDetected = useCallback(
+    async (barcode: string) => {
+      if (scanBusyRef.current) return;
+      scanBusyRef.current = true;
+      setScanStatus("Wird hinzugefügt…");
+      try {
+        const res = await fetch(`/api/lists/${listId}/items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ barcode }),
+        });
+        const data = (await res.json()) as {
+          ok?: boolean;
+          error?: string;
+          list?: ShoppingList;
+          item?: { name?: string };
+        };
+        if (res.status === 409) {
+          setScanStatus("Schon auf der Liste");
+          return;
+        }
+        if (res.status === 404 && data.error === "needs_name") {
+          setPendingBarcode(barcode);
+          setManualName("");
+          setScanStatus(null);
+          setScannerOpen(false);
+          return;
+        }
+        if (!res.ok || !data.list) {
+          setScanStatus("Nicht erkannt — erneut versuchen");
+          return;
+        }
+        revisionRef.current = data.list.revision;
+        setList(data.list);
+        setTopTick((n) => n + 1);
+        setScanStatus(`✓ ${data.item?.name ?? "Hinzugefügt"}`);
+      } catch {
+        setScanStatus("Fehler — erneut versuchen");
+      } finally {
+        window.setTimeout(() => {
+          scanBusyRef.current = false;
+        }, 800);
+      }
+    },
+    [listId],
+  );
+
+  async function submitManualBarcodeName(e: FormEvent) {
+    e.preventDefault();
+    if (!pendingBarcode || !manualName.trim()) return;
+    const result = await addItem({
+      barcode: pendingBarcode,
+      name: manualName.trim(),
+    });
+    if (result.ok) {
+      setPendingBarcode(null);
+      setManualName("");
+      setScannerOpen(true);
+      setScanStatus(`✓ ${result.itemName ?? "Hinzugefügt"}`);
     }
   }
 
@@ -397,38 +499,102 @@ export function ListDetail({ listId }: { listId: string }) {
         )}
       </header>
 
-      <form onSubmit={onSubmit} className="relative mb-4">
-        <input
-          ref={inputRef}
-          type="text"
-          value={query}
-          onChange={(e) => {
-            const value = e.target.value;
-            setQuery(value);
-            if (!value.trim()) setSuggestions([]);
+      <div className="relative mb-4 flex gap-2">
+        <form onSubmit={onSubmit} className="relative min-w-0 flex-1">
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={(e) => {
+              const value = e.target.value;
+              setQuery(value);
+              if (!value.trim()) setSuggestions([]);
+            }}
+            onKeyDown={onKeyDown}
+            placeholder="Artikel suchen oder hinzufügen"
+            autoComplete="off"
+            className="w-full rounded-xl border border-hairline bg-white/70 px-4 py-3 text-base outline-none ring-accent focus:ring-2"
+          />
+          {suggestions.length > 0 && query.trim() ? (
+            <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-hairline bg-white shadow-sm">
+              {suggestions.map((s) => (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between px-4 py-2.5 text-left hover:bg-surface"
+                    onClick={() => void addItem({ id: s.id })}
+                  >
+                    <span>{s.name}</span>
+                    <span className="text-xs text-muted">{s.addCount}×</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </form>
+        <button
+          type="button"
+          onClick={() => {
+            setScanStatus(null);
+            setScannerOpen(true);
           }}
-          onKeyDown={onKeyDown}
-          placeholder="Artikel suchen oder hinzufügen"
-          autoComplete="off"
-          className="w-full rounded-xl border border-hairline bg-white/70 px-4 py-3 text-base outline-none ring-accent focus:ring-2"
-        />
-        {suggestions.length > 0 && query.trim() ? (
-          <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-hairline bg-white shadow-sm">
-            {suggestions.map((s) => (
-              <li key={s.id}>
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between px-4 py-2.5 text-left hover:bg-surface"
-                  onClick={() => void addItem({ id: s.id })}
-                >
-                  <span>{s.name}</span>
-                  <span className="text-xs text-muted">{s.addCount}×</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </form>
+          className="shrink-0 rounded-xl border border-hairline bg-white/70 p-3 text-accent transition hover:bg-accent-soft/40"
+          aria-label="Barcode scannen"
+          title="Barcode scannen"
+        >
+          <ScanIcon className="h-6 w-6" />
+        </button>
+      </div>
+
+      {pendingBarcode ? (
+        <form
+          onSubmit={(e) => void submitManualBarcodeName(e)}
+          className="mb-4 rounded-2xl border border-hairline bg-white/70 p-4"
+        >
+          <p className="mb-2 text-sm text-muted">
+            Unbekannter Code{" "}
+            <span className="font-mono text-foreground">{pendingBarcode}</span>
+            — kein Treffer im Archiv / Open Food Facts. Name eingeben:
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={manualName}
+              onChange={(e) => setManualName(e.target.value)}
+              placeholder="Artikelname"
+              className="min-w-0 flex-1 rounded-xl border border-hairline bg-white px-3 py-2 outline-none ring-accent focus:ring-2"
+              autoFocus
+            />
+            <button
+              type="submit"
+              disabled={busy || !manualName.trim()}
+              className="rounded-xl bg-accent px-3 py-2 text-sm font-semibold text-on-accent disabled:opacity-50"
+            >
+              Speichern
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPendingBarcode(null);
+                setManualName("");
+              }}
+              className="rounded-xl px-3 py-2 text-sm text-muted"
+            >
+              Abbrechen
+            </button>
+          </div>
+        </form>
+      ) : null}
+
+      <BarcodeScanner
+        open={scannerOpen}
+        onClose={() => {
+          setScannerOpen(false);
+          setScanStatus(null);
+        }}
+        onDetected={onBarcodeDetected}
+        statusMessage={scanStatus}
+      />
 
       {error ? (
         <p className="mb-3 text-sm text-danger" role="alert">

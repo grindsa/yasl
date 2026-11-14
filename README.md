@@ -76,4 +76,4 @@ Group tokens live only in `config/groups.yml` (gitignored).
 4. Tap an item on the list to remove it.
 5. Top 5 most-added archive items appear under the list.
 
-Phase 2 (not implemented): barcode scan into the archive.
+Barcode scan on the list detail page: archive match → else Open Food Facts → else manual name.
