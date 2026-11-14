@@ -102,20 +102,27 @@ export function BarcodeScanner({
     onDetectedRef.current = onDetected;
   }, [onDetected]);
 
-  // Play tone / flash when parent feedback changes (API result).
+  // Visual flash + result tones (Piep beim Erkennen passiert schon in emit()).
   useEffect(() => {
     if (!feedback) return;
     const key = `${feedback.kind}:${feedback.title}:${feedback.detail ?? ""}`;
     if (key === prevFeedbackKey.current) return;
     prevFeedbackKey.current = key;
-    const map: Record<NonNullable<ScanFeedback>["kind"], FeedbackKind> = {
-      pending: "detect",
+    // pending: nur Banner, Ton kam schon beim Scan
+    if (feedback.kind === "pending") {
+      const flashOn = window.setTimeout(() => setFlashKind("detect"), 0);
+      const flashOff = window.setTimeout(() => setFlashKind(null), 280);
+      return () => {
+        window.clearTimeout(flashOn);
+        window.clearTimeout(flashOff);
+      };
+    }
+    const map: Record<"success" | "warn" | "error", FeedbackKind> = {
       success: "success",
       warn: "warn",
       error: "error",
     };
     const kind = map[feedback.kind];
-    if (feedback.kind === "pending") return;
     playScanFeedback(kind);
     const flashOn = window.setTimeout(() => setFlashKind(kind), 0);
     const flashOff = window.setTimeout(() => setFlashKind(null), 450);
@@ -145,7 +152,7 @@ export function BarcodeScanner({
       }
       lastCodeRef.current = code;
       lastAtRef.current = now;
-      // Immediate chirp so the user knows the code was read.
+      // Sofortiger Piepton beim erfolgreichen Scannen.
       playScanFeedback("detect");
       setFlashKind("detect");
       window.setTimeout(() => setFlashKind(null), 280);
