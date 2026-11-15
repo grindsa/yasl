@@ -7,9 +7,16 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { slugify } from "./slug";
+
+/** Matches ids produced by slugify / uniqueId — rejects path separators and `..`. */
+const SAFE_LIST_ID = /^[a-z0-9][a-z0-9-]{0,79}$/;
+
+export function isSafeListId(listId: string): boolean {
+  return SAFE_LIST_ID.test(listId);
+}
 
 export type ArchiveItem = {
   id: string;
@@ -63,7 +70,20 @@ function listsDir(groupId: string): string {
 }
 
 function listPath(groupId: string, listId: string): string {
-  return join(listsDir(groupId), `${listId}.yml`);
+  if (!isSafeListId(listId)) {
+    throw new StoreError("not_found", 404);
+  }
+  const dir = listsDir(groupId);
+  const path = join(dir, `${listId}.yml`);
+  const resolvedDir = resolve(/*turbopackIgnore: true*/ dir);
+  const resolvedPath = resolve(/*turbopackIgnore: true*/ path);
+  if (
+    resolvedPath !== resolvedDir &&
+    !resolvedPath.startsWith(resolvedDir + sep)
+  ) {
+    throw new StoreError("not_found", 404);
+  }
+  return path;
 }
 
 async function withGroupLock<T>(
@@ -285,6 +305,7 @@ export async function getList(
   groupId: string,
   listId: string,
 ): Promise<ShoppingList | null> {
+  if (!isSafeListId(listId)) return null;
   return withGroupLock(groupId, () => loadList(groupId, listId));
 }
 

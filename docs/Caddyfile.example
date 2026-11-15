@@ -10,6 +10,8 @@
 	handle {
 		reverse_proxy {$YASL_UPSTREAM:yasl:3000} {
 			flush_interval -1
+			# Overwrite so the app can trust X-Real-IP for login rate limits
+			header_up X-Real-IP {remote_host}
 		}
 	}
 
