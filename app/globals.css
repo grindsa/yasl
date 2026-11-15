@@ -20,22 +20,29 @@
   --surface: color-mix(in oklab, var(--foreground) 5%, transparent);
   --hairline: color-mix(in oklab, var(--foreground) 12%, transparent);
   --danger: #9b2f1a;
+  --toggle-track: color-mix(in oklab, var(--background-accent) 70%, #ffffff);
+  --toggle-active: var(--accent);
+  --toggle-active-fg: var(--on-accent);
 }
 
+/* Night reading of the same palette: warm charcoal branches, soft blush, sky. */
 html[data-theme="dark"] {
-  --background: #1a1c1d;
-  --background-accent: #2a2e30;
-  --foreground: #e8e8e8;
-  --muted: #a8b0b2;
+  --background: #241f1d;
+  --background-accent: #3a322e;
+  --foreground: #f0e8e4;
+  --muted: #b5a79e;
   --accent: #d4a48a;
-  --on-accent: #1a1c1d;
-  --accent-soft: #4a3a34;
-  --sky: #8ec9d0;
-  --panel: color-mix(in oklab, #ffffff 7%, transparent);
-  --panel-strong: color-mix(in oklab, #ffffff 12%, transparent);
+  --on-accent: #2a221f;
+  --accent-soft: #4a3832;
+  --sky: #7dbcc5;
+  --panel: color-mix(in oklab, #c98e70 8%, #2e2825);
+  --panel-strong: color-mix(in oklab, #e0e0e0 10%, #322b28);
   --surface: color-mix(in oklab, var(--foreground) 8%, transparent);
-  --hairline: color-mix(in oklab, var(--foreground) 16%, transparent);
+  --hairline: color-mix(in oklab, var(--foreground) 14%, transparent);
   --danger: #e07a6a;
+  --toggle-track: color-mix(in oklab, var(--background-accent) 80%, #1a1614);
+  --toggle-active: var(--accent);
+  --toggle-active-fg: var(--on-accent);
 }
 
 @theme inline {
@@ -52,6 +59,9 @@ html[data-theme="dark"] {
   --color-surface: var(--surface);
   --color-hairline: var(--hairline);
   --color-danger: var(--danger);
+  --color-toggle-track: var(--toggle-track);
+  --color-toggle-active: var(--toggle-active);
+  --color-toggle-active-fg: var(--toggle-active-fg);
   --font-sans: var(--font-outfit);
 }
 

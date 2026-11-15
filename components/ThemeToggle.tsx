@@ -4,8 +4,8 @@ import { useTheme } from "./theme-provider";
 import type { ThemePreference } from "@/lib/theme";
 
 const OPTIONS: { value: ThemePreference; label: string }[] = [
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
+  { value: "light", label: "Hell" },
+  { value: "dark", label: "Dunkel" },
   { value: "auto", label: "Auto" },
 ];
 
@@ -16,7 +16,7 @@ export function ThemeToggle() {
     <div
       role="group"
       aria-label="Farbschema"
-      className="inline-flex items-center gap-0.5 rounded-lg border border-hairline bg-panel-strong p-0.5 text-xs font-medium shadow-sm"
+      className="inline-flex items-center gap-0.5 rounded-full border border-hairline bg-toggle-track p-1 text-xs font-medium"
     >
       {OPTIONS.map((option) => {
         const active = preference === option.value;
@@ -27,10 +27,10 @@ export function ThemeToggle() {
             aria-pressed={active}
             onClick={() => setPreference(option.value)}
             className={[
-              "rounded-md px-2.5 py-1.5 transition-colors duration-200",
+              "rounded-full px-2.5 py-1 transition-colors duration-200",
               active
-                ? "bg-accent text-on-accent"
-                : "text-muted hover:text-foreground",
+                ? "bg-toggle-active text-toggle-active-fg shadow-sm"
+                : "text-muted hover:bg-surface hover:text-foreground",
             ].join(" ")}
           >
             {option.label}
