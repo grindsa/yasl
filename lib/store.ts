@@ -9,6 +9,13 @@ import {
 import { existsSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import {
+  classifyItem,
+  departmentSortIndex,
+  isDepartmentId,
+  type DepartmentId,
+  type DepartmentSource,
+} from "./departments";
 import { slugify } from "./slug";
 
 /** Matches ids produced by slugify / uniqueId — rejects path separators and `..`. */
@@ -24,12 +31,16 @@ export type ArchiveItem = {
   addCount: number;
   lastAddedAt: string;
   barcode: string | null;
+  department: DepartmentId;
+  departmentSource: DepartmentSource;
 };
 
 export type ListItem = {
   id: string;
   name: string;
   addedAt: string;
+  /** Present on API responses; joined from archive. */
+  department?: DepartmentId;
 };
 
 export type ShoppingList = {
@@ -129,6 +140,43 @@ async function readYamlFile<T>(path: string): Promise<T | null> {
   }
 }
 
+function normalizeDepartmentSource(
+  value: unknown,
+): DepartmentSource | null {
+  if (value === "rule" || value === "off" || value === "user") return value;
+  return null;
+}
+
+function ensureArchiveDepartment(
+  item: Omit<ArchiveItem, "department" | "departmentSource"> & {
+    department?: unknown;
+    departmentSource?: unknown;
+  },
+  offTags?: string[] | null,
+): ArchiveItem {
+  const existingSource = normalizeDepartmentSource(item.departmentSource);
+  if (isDepartmentId(item.department) && existingSource === "user") {
+    return {
+      ...item,
+      department: item.department,
+      departmentSource: "user",
+    };
+  }
+  if (isDepartmentId(item.department) && existingSource) {
+    return {
+      ...item,
+      department: item.department,
+      departmentSource: existingSource,
+    };
+  }
+  const classified = classifyItem({ name: item.name, offTags });
+  return {
+    ...item,
+    department: classified.department,
+    departmentSource: classified.source,
+  };
+}
+
 function normalizeArchive(raw: ArchiveFile | null): ArchiveItem[] {
   if (!raw || !Array.isArray(raw.items)) return [];
   return raw.items
@@ -139,16 +187,34 @@ function normalizeArchive(raw: ArchiveFile | null): ArchiveItem[] {
         typeof i.name === "string" &&
         typeof i.addCount === "number",
     )
-    .map((i) => ({
-      id: i.id,
-      name: i.name,
-      addCount: Math.max(0, Math.floor(i.addCount)),
-      lastAddedAt:
-        typeof i.lastAddedAt === "string"
-          ? i.lastAddedAt
-          : new Date(0).toISOString(),
-      barcode: typeof i.barcode === "string" ? i.barcode : null,
-    }));
+    .map((i) =>
+      ensureArchiveDepartment({
+        id: i.id,
+        name: i.name,
+        addCount: Math.max(0, Math.floor(i.addCount)),
+        lastAddedAt:
+          typeof i.lastAddedAt === "string"
+            ? i.lastAddedAt
+            : new Date(0).toISOString(),
+        barcode: typeof i.barcode === "string" ? i.barcode : null,
+        department: (i as ArchiveItem).department,
+        departmentSource: (i as ArchiveItem).departmentSource,
+      }),
+    );
+}
+
+function enrichListItems(
+  list: ShoppingList,
+  archive: ArchiveItem[],
+): ShoppingList {
+  const byId = new Map(archive.map((a) => [a.id, a]));
+  return {
+    ...list,
+    items: list.items.map((item) => ({
+      ...item,
+      department: byId.get(item.id)?.department ?? classifyItem({ name: item.name }).department,
+    })),
+  };
 }
 
 function normalizeList(raw: ShoppingList | null, fallbackId: string): ShoppingList | null {
@@ -199,7 +265,12 @@ async function loadList(
 
 async function saveList(groupId: string, list: ShoppingList): Promise<void> {
   await ensureGroupDirs(groupId);
-  await writeYamlAtomic(listPath(groupId, list.id), list);
+  // Department is archive-owned; keep list YAML lean.
+  const toSave: ShoppingList = {
+    ...list,
+    items: list.items.map(({ id, name, addedAt }) => ({ id, name, addedAt })),
+  };
+  await writeYamlAtomic(listPath(groupId, list.id), toSave);
 }
 
 function uniqueId(base: string, taken: Set<string>): string {
@@ -281,7 +352,8 @@ export async function renameList(
     list.revision += 1;
     list.updatedAt = new Date().toISOString();
     await saveList(groupId, list);
-    return list;
+    const archive = await loadArchive(groupId);
+    return enrichListItems(list, archive);
   });
 }
 
@@ -306,7 +378,12 @@ export async function getList(
   listId: string,
 ): Promise<ShoppingList | null> {
   if (!isSafeListId(listId)) return null;
-  return withGroupLock(groupId, () => loadList(groupId, listId));
+  return withGroupLock(groupId, async () => {
+    const list = await loadList(groupId, listId);
+    if (!list) return null;
+    const archive = await loadArchive(groupId);
+    return enrichListItems(list, archive);
+  });
 }
 
 function normalizeBarcode(raw: string): string {
@@ -331,7 +408,12 @@ export async function findArchiveByBarcode(
 export async function addItemToList(
   groupId: string,
   listId: string,
-  input: { name?: string; id?: string; barcode?: string },
+  input: {
+    name?: string;
+    id?: string;
+    barcode?: string;
+    offTags?: string[] | null;
+  },
 ): Promise<{ list: ShoppingList; item: ListItem; source?: string }> {
   return withGroupLock(groupId, async () => {
     const list = await loadList(groupId, listId);
@@ -361,12 +443,18 @@ export async function addItemToList(
         if (!name) throw new StoreError("barcode_unknown", 404);
         const taken = new Set(archive.map((a) => a.id));
         const id = uniqueId(slugify(name), taken);
+        const classified = classifyItem({
+          name,
+          offTags: input.offTags,
+        });
         archiveItem = {
           id,
           name,
           addCount: 0,
           lastAddedAt: now,
           barcode,
+          department: classified.department,
+          departmentSource: classified.source,
         };
         archive.push(archiveItem);
         source = "new";
@@ -379,12 +467,18 @@ export async function addItemToList(
       if (!archiveItem) {
         const taken = new Set(archive.map((a) => a.id));
         const id = uniqueId(slugify(name), taken);
+        const classified = classifyItem({
+          name,
+          offTags: input.offTags,
+        });
         archiveItem = {
           id,
           name,
           addCount: 0,
           lastAddedAt: now,
           barcode: null,
+          department: classified.department,
+          departmentSource: classified.source,
         };
         archive.push(archiveItem);
         source = "new";
@@ -400,6 +494,21 @@ export async function addItemToList(
       archiveItem.barcode = barcode;
     }
 
+    // Upgrade auto classification from OFF tags when user has not overridden.
+    if (
+      input.offTags?.length &&
+      archiveItem.departmentSource !== "user"
+    ) {
+      const classified = classifyItem({
+        name: archiveItem.name,
+        offTags: input.offTags,
+      });
+      if (classified.source === "off") {
+        archiveItem.department = classified.department;
+        archiveItem.departmentSource = "off";
+      }
+    }
+
     archiveItem.addCount += 1;
     archiveItem.lastAddedAt = now;
     await saveArchive(groupId, archive);
@@ -408,12 +517,17 @@ export async function addItemToList(
       id: archiveItem.id,
       name: archiveItem.name,
       addedAt: now,
+      department: archiveItem.department,
     };
     list.items.push(item);
     list.revision += 1;
     list.updatedAt = now;
     await saveList(groupId, list);
-    return { list, item, source };
+    return {
+      list: enrichListItems(list, archive),
+      item,
+      source,
+    };
   });
 }
 
@@ -433,7 +547,8 @@ export async function removeItemFromList(
     list.revision += 1;
     list.updatedAt = new Date().toISOString();
     await saveList(groupId, list);
-    return list;
+    const archive = await loadArchive(groupId);
+    return enrichListItems(list, archive);
   });
 }
 
@@ -468,7 +583,75 @@ export async function reorderListItems(
     list.revision += 1;
     list.updatedAt = new Date().toISOString();
     await saveList(groupId, list);
-    return list;
+    const archive = await loadArchive(groupId);
+    return enrichListItems(list, archive);
+  });
+}
+
+/** Persist department on archive item (user override). */
+export async function setArchiveDepartment(
+  groupId: string,
+  itemId: string,
+  department: DepartmentId,
+): Promise<ArchiveItem> {
+  if (!isDepartmentId(department)) {
+    throw new StoreError("invalid_department", 400);
+  }
+  return withGroupLock(groupId, async () => {
+    const archive = await loadArchive(groupId);
+    const item = archive.find((a) => a.id === itemId);
+    if (!item) throw new StoreError("archive_not_found", 404);
+    item.department = department;
+    item.departmentSource = "user";
+    await saveArchive(groupId, archive);
+    return item;
+  });
+}
+
+/** Reorder list items by supermarket aisle order, then German name. */
+export async function sortListByDepartment(
+  groupId: string,
+  listId: string,
+): Promise<ShoppingList> {
+  return withGroupLock(groupId, async () => {
+    const list = await loadList(groupId, listId);
+    if (!list) throw new StoreError("not_found", 404);
+    const archive = await loadArchive(groupId);
+    const byId = new Map(archive.map((a) => [a.id, a]));
+
+    for (const item of list.items) {
+      if (byId.has(item.id)) continue;
+      const classified = classifyItem({ name: item.name });
+      const arch: ArchiveItem = {
+        id: item.id,
+        name: item.name,
+        addCount: 0,
+        lastAddedAt: item.addedAt,
+        barcode: null,
+        department: classified.department,
+        departmentSource: classified.source,
+      };
+      archive.push(arch);
+      byId.set(item.id, arch);
+    }
+    // Persist backfilled departments from normalize/classify.
+    await saveArchive(groupId, archive);
+
+    list.items = [...list.items].sort((a, b) => {
+      const da =
+        byId.get(a.id)?.department ??
+        classifyItem({ name: a.name }).department;
+      const db =
+        byId.get(b.id)?.department ??
+        classifyItem({ name: b.name }).department;
+      const byDept = departmentSortIndex(da) - departmentSortIndex(db);
+      if (byDept !== 0) return byDept;
+      return a.name.localeCompare(b.name, "de", { sensitivity: "base" });
+    });
+    list.revision += 1;
+    list.updatedAt = new Date().toISOString();
+    await saveList(groupId, list);
+    return enrichListItems(list, archive);
   });
 }
 
@@ -509,6 +692,9 @@ export async function topArchive(
       .slice(0, limit);
   });
 }
+
+export { DEPARTMENT_IDS, DEPARTMENT_LABELS, isDepartmentId } from "./departments";
+export type { DepartmentId, DepartmentSource } from "./departments";
 
 export class StoreError extends Error {
   constructor(

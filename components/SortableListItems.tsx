@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment } from "react";
 import {
   DndContext,
   closestCenter,
@@ -18,8 +19,18 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import {
+  DEPARTMENT_IDS,
+  DEPARTMENT_LABELS,
+  type DepartmentId,
+} from "@/lib/departments";
 
-type ListItem = { id: string; name: string; addedAt: string };
+type ListItem = {
+  id: string;
+  name: string;
+  addedAt: string;
+  department?: DepartmentId;
+};
 
 function GripIcon({ className }: { className?: string }) {
   return (
@@ -42,9 +53,11 @@ function GripIcon({ className }: { className?: string }) {
 function SortableRow({
   item,
   onRemove,
+  onDepartmentChange,
 }: {
   item: ListItem;
   onRemove: (id: string) => void;
+  onDepartmentChange?: (id: string, department: DepartmentId) => void;
 }) {
   const {
     attributes,
@@ -62,11 +75,13 @@ function SortableRow({
     opacity: isDragging ? 0.92 : undefined,
   };
 
+  const department = item.department ?? "other";
+
   return (
     <li
       ref={setNodeRef}
       style={style}
-      className={`flex items-stretch border-b border-hairline last:border-b-0 ${
+      className={`flex items-stretch border-b border-hairline ${
         isDragging ? "bg-accent-soft/50 shadow-sm" : "bg-transparent"
       }`}
     >
@@ -82,12 +97,35 @@ function SortableRow({
       <button
         type="button"
         onClick={() => onRemove(item.id)}
-        className="min-w-0 flex-1 px-2 py-3.5 pr-4 text-left text-base transition hover:bg-accent-soft/40 active:bg-accent-soft/60"
+        className="min-w-0 flex-1 px-2 py-3.5 text-left text-base transition hover:bg-accent-soft/40 active:bg-accent-soft/60"
       >
         {item.name}
       </button>
+      {onDepartmentChange ? (
+        <label className="flex shrink-0 items-center pr-2">
+          <span className="sr-only">Abteilung für {item.name}</span>
+          <select
+            value={department}
+            onChange={(e) =>
+              onDepartmentChange(item.id, e.target.value as DepartmentId)
+            }
+            onClick={(e) => e.stopPropagation()}
+            className="max-w-[7.5rem] truncate rounded-lg border border-hairline bg-panel-strong px-1.5 py-1 text-[11px] text-muted outline-none ring-accent focus:ring-2"
+          >
+            {DEPARTMENT_IDS.map((id) => (
+              <option key={id} value={id}>
+                {DEPARTMENT_LABELS[id]}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
     </li>
   );
+}
+
+function departmentOf(item: ListItem): DepartmentId {
+  return item.department ?? "other";
 }
 
 export function SortableListItems({
@@ -95,11 +133,13 @@ export function SortableListItems({
   onReorder,
   onRemove,
   onDragStateChange,
+  onDepartmentChange,
 }: {
   items: ListItem[];
   onReorder: (next: ListItem[]) => void;
   onRemove: (id: string) => void;
   onDragStateChange?: (dragging: boolean) => void;
+  onDepartmentChange?: (id: string, department: DepartmentId) => void;
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -142,9 +182,26 @@ export function SortableListItems({
         strategy={verticalListSortingStrategy}
       >
         <ul className="overflow-hidden rounded-xl bg-panel">
-          {items.map((item) => (
-            <SortableRow key={item.id} item={item} onRemove={onRemove} />
-          ))}
+          {items.map((item, index) => {
+            const dept = departmentOf(item);
+            const prevDept =
+              index > 0 ? departmentOf(items[index - 1]!) : null;
+            const showHeader = prevDept !== dept;
+            return (
+              <Fragment key={item.id}>
+                {showHeader ? (
+                  <li className="border-b border-hairline bg-surface/80 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">
+                    {DEPARTMENT_LABELS[dept]}
+                  </li>
+                ) : null}
+                <SortableRow
+                  item={item}
+                  onRemove={onRemove}
+                  onDepartmentChange={onDepartmentChange}
+                />
+              </Fragment>
+            );
+          })}
         </ul>
       </SortableContext>
     </DndContext>

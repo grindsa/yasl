@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/with-auth";
 import { readJsonBody } from "@/lib/request-guard";
-import { addItemToList, reorderListItems, StoreError } from "@/lib/store";
+import {
+  addItemToList,
+  reorderListItems,
+  sortListByDepartment,
+  StoreError,
+} from "@/lib/store";
 import { lookupOpenFoodFacts } from "@/lib/open-food-facts";
 
 export const POST = withAuth(async function POST(request, ctx, routeCtx) {
@@ -35,6 +40,7 @@ export const POST = withAuth(async function POST(request, ctx, routeCtx) {
           const result = await addItemToList(ctx.groupId, params.id, {
             barcode: off.barcode,
             name: off.name,
+            offTags: off.categoriesTags,
           });
           return NextResponse.json(
             {
@@ -78,16 +84,22 @@ export const POST = withAuth(async function POST(request, ctx, routeCtx) {
   }
 });
 
-/** Body: `{ order: string[] }` — permutation of current item ids. */
+/** Body: `{ order: string[] }` or `{ sortBy: "department" }`. */
 export const PUT = withAuth(async function PUT(request, ctx, routeCtx) {
   const params = await routeCtx!.params;
   const parsed = await readJsonBody(request);
   if (!parsed.ok) return parsed.response;
-  const body = parsed.body as { order?: unknown } | null;
-  const order = Array.isArray(body?.order)
-    ? body.order.filter((id): id is string => typeof id === "string")
-    : [];
+  const body = parsed.body as { order?: unknown; sortBy?: unknown } | null;
+
   try {
+    if (body?.sortBy === "department") {
+      const list = await sortListByDepartment(ctx.groupId, params.id);
+      return NextResponse.json({ ok: true, list });
+    }
+
+    const order = Array.isArray(body?.order)
+      ? body.order.filter((id): id is string => typeof id === "string")
+      : [];
     const list = await reorderListItems(ctx.groupId, params.id, order);
     return NextResponse.json({ ok: true, list });
   } catch (err) {

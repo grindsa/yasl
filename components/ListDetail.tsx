@@ -16,9 +16,15 @@ import {
 } from "@/components/BarcodeScanner";
 import { SortableListItems } from "@/components/SortableListItems";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import type { DepartmentId } from "@/lib/departments";
 import { unlockScanAudio } from "@/lib/scan-feedback";
 
-type ListItem = { id: string; name: string; addedAt: string };
+type ListItem = {
+  id: string;
+  name: string;
+  addedAt: string;
+  department?: DepartmentId;
+};
 type ShoppingList = {
   id: string;
   name: string;
@@ -403,6 +409,58 @@ export function ListDetail({ listId }: { listId: string }) {
     }
   }
 
+  async function sortByDepartment() {
+    const prev = list;
+    if (!prev || prev.items.length < 2) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/lists/${listId}/items`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sortBy: "department" }),
+      });
+      if (!res.ok) {
+        setError("Sortierung nach Abteilung fehlgeschlagen.");
+        return;
+      }
+      const data = (await res.json()) as { list: ShoppingList };
+      revisionRef.current = data.list.revision;
+      setList(data.list);
+    } catch {
+      setError("Sortierung nach Abteilung fehlgeschlagen.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function changeDepartment(itemId: string, department: DepartmentId) {
+    const prev = list;
+    if (prev) {
+      setList({
+        ...prev,
+        items: prev.items.map((i) =>
+          i.id === itemId ? { ...i, department } : i,
+        ),
+      });
+    }
+    try {
+      const res = await fetch(`/api/archive/${itemId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ department }),
+      });
+      if (!res.ok) {
+        if (prev) setList(prev);
+        setError("Abteilung konnte nicht gespeichert werden.");
+        return;
+      }
+    } catch {
+      if (prev) setList(prev);
+      setError("Abteilung konnte nicht gespeichert werden.");
+    }
+  }
+
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     const name = query.trim();
@@ -672,9 +730,21 @@ export function ListDetail({ listId }: { listId: string }) {
       ) : null}
 
       <section className="mb-8 rounded-2xl border-2 border-sky bg-panel p-3">
-        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-sky">
-          Auf der Liste
-        </h2>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-sky">
+            Auf der Liste
+          </h2>
+          {list && list.items.length > 1 ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void sortByDepartment()}
+              className="rounded-lg px-2 py-1 text-[11px] font-medium text-sky transition hover:bg-sky/10 disabled:opacity-50"
+            >
+              Nach Laufweg
+            </button>
+          ) : null}
+        </div>
         {!list ? (
           <ul className="overflow-hidden rounded-xl bg-panel">
             <li className="px-4 py-5 text-sm text-muted">Laden…</li>
@@ -690,6 +760,9 @@ export function ListDetail({ listId }: { listId: string }) {
             items={list.items}
             onRemove={(id) => void removeItem(id)}
             onReorder={(next) => void reorderItems(next)}
+            onDepartmentChange={(id, department) =>
+              void changeDepartment(id, department)
+            }
             onDragStateChange={(dragging) => {
               draggingRef.current = dragging;
             }}

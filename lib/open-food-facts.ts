@@ -8,7 +8,7 @@ const USER_AGENT =
   "YASL/0.1 (Yet Another Shopping List; https://ekz.mewes-im-netz.de)";
 
 export type OffLookupResult =
-  | { ok: true; name: string; barcode: string }
+  | { ok: true; name: string; barcode: string; categoriesTags: string[] }
   | { ok: false; reason: "not_found" | "timeout" | "error" };
 
 function normalizeBarcode(raw: string): string {
@@ -60,7 +60,11 @@ export async function lookupOpenFoodFacts(
     }
     const name = pickName(data.product);
     if (!name) return { ok: false, reason: "not_found" };
-    return { ok: true, name, barcode };
+    const rawTags = data.product.categories_tags;
+    const categoriesTags = Array.isArray(rawTags)
+      ? rawTags.filter((t): t is string => typeof t === "string")
+      : [];
+    return { ok: true, name, barcode, categoriesTags };
   } catch (err) {
     if ((err as Error).name === "AbortError") {
       return { ok: false, reason: "timeout" };
