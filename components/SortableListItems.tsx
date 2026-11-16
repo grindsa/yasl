@@ -134,12 +134,14 @@ export function SortableListItems({
   onRemove,
   onDragStateChange,
   onDepartmentChange,
+  departmentsEnabled = false,
 }: {
   items: ListItem[];
   onReorder: (next: ListItem[]) => void;
   onRemove: (id: string) => void;
   onDragStateChange?: (dragging: boolean) => void;
   onDepartmentChange?: (id: string, department: DepartmentId) => void;
+  departmentsEnabled?: boolean;
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -186,7 +188,8 @@ export function SortableListItems({
             const dept = departmentOf(item);
             const prevDept =
               index > 0 ? departmentOf(items[index - 1]!) : null;
-            const showHeader = prevDept !== dept;
+            const showHeader =
+              departmentsEnabled && prevDept !== dept;
             return (
               <Fragment key={item.id}>
                 {showHeader ? (
@@ -197,7 +200,9 @@ export function SortableListItems({
                 <SortableRow
                   item={item}
                   onRemove={onRemove}
-                  onDepartmentChange={onDepartmentChange}
+                  onDepartmentChange={
+                    departmentsEnabled ? onDepartmentChange : undefined
+                  }
                 />
               </Fragment>
             );

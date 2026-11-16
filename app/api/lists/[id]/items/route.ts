@@ -7,6 +7,7 @@ import {
   sortListByDepartment,
   StoreError,
 } from "@/lib/store";
+import { departmentsEnabled } from "@/lib/features";
 import { lookupOpenFoodFacts } from "@/lib/open-food-facts";
 
 export const POST = withAuth(async function POST(request, ctx, routeCtx) {
@@ -93,6 +94,12 @@ export const PUT = withAuth(async function PUT(request, ctx, routeCtx) {
 
   try {
     if (body?.sortBy === "department") {
+      if (!departmentsEnabled()) {
+        return NextResponse.json(
+          { ok: false, error: "departments_disabled" },
+          { status: 403 },
+        );
+      }
       const list = await sortListByDepartment(ctx.groupId, params.id);
       return NextResponse.json({ ok: true, list });
     }

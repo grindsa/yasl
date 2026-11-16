@@ -3,6 +3,7 @@ import { connection } from "next/server";
 import { redirect } from "next/navigation";
 import { isAuthenticated } from "@/lib/auth";
 import { ListDetail } from "@/components/ListDetail";
+import { departmentsEnabled } from "@/lib/features";
 
 async function DetailGate({
   params,
@@ -14,7 +15,9 @@ async function DetailGate({
   if (!(await isAuthenticated())) {
     redirect("/");
   }
-  return <ListDetail listId={id} />;
+  return (
+    <ListDetail listId={id} departmentsEnabled={departmentsEnabled()} />
+  );
 }
 
 export default function ListPage({

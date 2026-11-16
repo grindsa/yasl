@@ -99,7 +99,13 @@ function ScanIcon({ className }: { className?: string }) {
   );
 }
 
-export function ListDetail({ listId }: { listId: string }) {
+export function ListDetail({
+  listId,
+  departmentsEnabled = false,
+}: {
+  listId: string;
+  departmentsEnabled?: boolean;
+}) {
   const router = useRouter();
   const [list, setList] = useState<ShoppingList | null>(null);
   const [top, setTop] = useState<ArchiveItem[]>([]);
@@ -734,7 +740,7 @@ export function ListDetail({ listId }: { listId: string }) {
           <h2 className="text-xs font-semibold uppercase tracking-wider text-sky">
             Auf der Liste
           </h2>
-          {list && list.items.length > 1 ? (
+          {departmentsEnabled && list && list.items.length > 1 ? (
             <button
               type="button"
               disabled={busy}
@@ -758,10 +764,13 @@ export function ListDetail({ listId }: { listId: string }) {
         ) : (
           <SortableListItems
             items={list.items}
+            departmentsEnabled={departmentsEnabled}
             onRemove={(id) => void removeItem(id)}
             onReorder={(next) => void reorderItems(next)}
-            onDepartmentChange={(id, department) =>
-              void changeDepartment(id, department)
+            onDepartmentChange={
+              departmentsEnabled
+                ? (id, department) => void changeDepartment(id, department)
+                : undefined
             }
             onDragStateChange={(dragging) => {
               draggingRef.current = dragging;

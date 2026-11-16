@@ -6,10 +6,17 @@ import {
   setArchiveDepartment,
   StoreError,
 } from "@/lib/store";
+import { departmentsEnabled } from "@/lib/features";
 
 /** Body: `{ department: DepartmentId }` — user override for aisle. */
 export const PATCH = withAuth(async function PATCH(request, ctx, routeCtx) {
   const params = await routeCtx!.params;
+  if (!departmentsEnabled()) {
+    return NextResponse.json(
+      { ok: false, error: "departments_disabled" },
+      { status: 403 },
+    );
+  }
   const parsed = await readJsonBody(request);
   if (!parsed.ok) return parsed.response;
   const body = parsed.body as { department?: unknown } | null;

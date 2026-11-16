@@ -65,6 +65,7 @@ mkdir -p /srv/data/yasl
 | `SESSION_EPOCH` | Optional; change to log out every device |
 | `DATA_DIR` | Inside container: `/app/data` (host: `/srv/data/yasl`) |
 | `GROUPS_CONFIG_FILE` | Path to groups YAML (default `config/groups.yml`) |
+| `ENABLE_DEPARTMENTS` | Optional; `true` / `1` / `yes` enables aisle categories + „Nach Laufweg“ |
 
 Group tokens live only in `config/groups.yml` (gitignored).
 
