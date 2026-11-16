@@ -99,12 +99,22 @@ function ScanIcon({ className }: { className?: string }) {
   );
 }
 
+const UNDO_TOAST_MS = 5000;
+const ITEM_FADE_MS = 320;
+
+type UndoDelete = {
+  id: string;
+  name: string;
+};
+
 export function ListDetail({
   listId,
   departmentsEnabled = false,
+  itemDeleteDelayMs = 3000,
 }: {
   listId: string;
   departmentsEnabled?: boolean;
+  itemDeleteDelayMs?: number;
 }) {
   const router = useRouter();
   const [list, setList] = useState<ShoppingList | null>(null);
@@ -121,11 +131,89 @@ export function ListDetail({
   const [scanFeedback, setScanFeedback] = useState<ScanFeedback>(null);
   const [pendingBarcode, setPendingBarcode] = useState<string | null>(null);
   const [manualName, setManualName] = useState("");
+  const [pendingRemoveIds, setPendingRemoveIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [removingIds, setRemovingIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [enteringIds, setEnteringIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [undoDelete, setUndoDelete] = useState<UndoDelete | null>(null);
   const revisionRef = useRef<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const scanBusyRef = useRef(false);
   const draggingRef = useRef(false);
+  const pendingTimersRef = useRef<Map<string, number>>(new Map());
+  const fadeTimersRef = useRef<Map<string, number>>(new Map());
+  const enterTimersRef = useRef<Map<string, number>>(new Map());
+  const undoTimerRef = useRef<number | null>(null);
+  const listRef = useRef<ShoppingList | null>(null);
+  listRef.current = list;
+
+  useEffect(() => {
+    return () => {
+      for (const handle of pendingTimersRef.current.values()) {
+        window.clearTimeout(handle);
+      }
+      pendingTimersRef.current.clear();
+      for (const handle of fadeTimersRef.current.values()) {
+        window.clearTimeout(handle);
+      }
+      fadeTimersRef.current.clear();
+      for (const handle of enterTimersRef.current.values()) {
+        window.clearTimeout(handle);
+      }
+      enterTimersRef.current.clear();
+      if (undoTimerRef.current != null) {
+        window.clearTimeout(undoTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!list) return;
+    const liveIds = new Set(list.items.map((i) => i.id));
+    const stale: string[] = [];
+    for (const id of pendingTimersRef.current.keys()) {
+      if (!liveIds.has(id)) stale.push(id);
+    }
+    for (const id of fadeTimersRef.current.keys()) {
+      if (!liveIds.has(id) && !stale.includes(id)) stale.push(id);
+    }
+    for (const id of enterTimersRef.current.keys()) {
+      if (!liveIds.has(id) && !stale.includes(id)) stale.push(id);
+    }
+    if (stale.length === 0) return;
+    for (const id of stale) {
+      const pendingHandle = pendingTimersRef.current.get(id);
+      if (pendingHandle != null) window.clearTimeout(pendingHandle);
+      pendingTimersRef.current.delete(id);
+      const fadeHandle = fadeTimersRef.current.get(id);
+      if (fadeHandle != null) window.clearTimeout(fadeHandle);
+      fadeTimersRef.current.delete(id);
+      const enterHandle = enterTimersRef.current.get(id);
+      if (enterHandle != null) window.clearTimeout(enterHandle);
+      enterTimersRef.current.delete(id);
+    }
+    setPendingRemoveIds((prev) => {
+      const next = new Set(prev);
+      for (const id of stale) next.delete(id);
+      return next;
+    });
+    setRemovingIds((prev) => {
+      const next = new Set(prev);
+      for (const id of stale) next.delete(id);
+      return next;
+    });
+    setEnteringIds((prev) => {
+      const next = new Set(prev);
+      for (const id of stale) next.delete(id);
+      return next;
+    });
+  }, [list]);
 
   useEffect(() => {
     let cancelled = false;
@@ -223,6 +311,26 @@ export function ListDetail({
     };
   }, [query]);
 
+  const markItemEntering = useCallback((itemId: string) => {
+    const existing = enterTimersRef.current.get(itemId);
+    if (existing != null) window.clearTimeout(existing);
+    setEnteringIds((prev) => {
+      const next = new Set(prev);
+      next.add(itemId);
+      return next;
+    });
+    const handle = window.setTimeout(() => {
+      enterTimersRef.current.delete(itemId);
+      setEnteringIds((prev) => {
+        if (!prev.has(itemId)) return prev;
+        const next = new Set(prev);
+        next.delete(itemId);
+        return next;
+      });
+    }, ITEM_FADE_MS);
+    enterTimersRef.current.set(itemId, handle);
+  }, []);
+
   async function addItem(payload: {
     name?: string;
     id?: string;
@@ -240,7 +348,7 @@ export function ListDetail({
         ok?: boolean;
         error?: string;
         list?: ShoppingList;
-        item?: { name?: string };
+        item?: { id?: string; name?: string };
         barcode?: string;
         reason?: string;
       };
@@ -256,6 +364,7 @@ export function ListDetail({
         return { ok: false, error: data.error ?? "failed" };
       }
       revisionRef.current = data.list.revision;
+      if (data.item?.id) markItemEntering(data.item.id);
       setList(data.list);
       setQuery("");
       setSuggestions([]);
@@ -289,7 +398,7 @@ export function ListDetail({
           ok?: boolean;
           error?: string;
           list?: ShoppingList;
-          item?: { name?: string };
+          item?: { id?: string; name?: string };
         };
         if (res.status === 409) {
           setScanFeedback({
@@ -318,6 +427,7 @@ export function ListDetail({
           return;
         }
         revisionRef.current = data.list.revision;
+        if (data.item?.id) markItemEntering(data.item.id);
         setList(data.list);
         setTopTick((n) => n + 1);
         setScanFeedback({
@@ -342,7 +452,7 @@ export function ListDetail({
         }, 800);
       }
     },
-    [listId],
+    [listId, markItemEntering],
   );
 
   async function submitManualBarcodeName(e: FormEvent) {
@@ -367,8 +477,41 @@ export function ListDetail({
     }
   }
 
-  async function removeItem(itemId: string) {
-    const prev = list;
+  function clearUndoToast() {
+    if (undoTimerRef.current != null) {
+      window.clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+    setUndoDelete(null);
+  }
+
+  function showUndoToast(item: UndoDelete) {
+    if (undoTimerRef.current != null) {
+      window.clearTimeout(undoTimerRef.current);
+    }
+    setUndoDelete(item);
+    undoTimerRef.current = window.setTimeout(() => {
+      setUndoDelete(null);
+      undoTimerRef.current = null;
+    }, UNDO_TOAST_MS);
+  }
+
+  function clearPendingRemove(itemId: string) {
+    const handle = pendingTimersRef.current.get(itemId);
+    if (handle != null) {
+      window.clearTimeout(handle);
+      pendingTimersRef.current.delete(itemId);
+    }
+    setPendingRemoveIds((prev) => {
+      if (!prev.has(itemId)) return prev;
+      const next = new Set(prev);
+      next.delete(itemId);
+      return next;
+    });
+  }
+
+  async function removeItem(itemId: string): Promise<boolean> {
+    const prev = listRef.current;
     if (prev) {
       setList({
         ...prev,
@@ -381,13 +524,80 @@ export function ListDetail({
       });
       if (!res.ok) {
         if (prev) setList(prev);
-        return;
+        return false;
       }
       const data = (await res.json()) as { list: ShoppingList };
       revisionRef.current = data.list.revision;
       setList(data.list);
+      return true;
     } catch {
       if (prev) setList(prev);
+      return false;
+    }
+  }
+
+  async function commitRemove(itemId: string) {
+    if (fadeTimersRef.current.has(itemId)) return;
+    clearPendingRemove(itemId);
+    const item = listRef.current?.items.find((i) => i.id === itemId);
+    if (!item) return;
+
+    setRemovingIds((prev) => {
+      const next = new Set(prev);
+      next.add(itemId);
+      return next;
+    });
+
+    await new Promise<void>((resolve) => {
+      const handle = window.setTimeout(() => {
+        fadeTimersRef.current.delete(itemId);
+        resolve();
+      }, ITEM_FADE_MS);
+      fadeTimersRef.current.set(itemId, handle);
+    });
+
+    setRemovingIds((prev) => {
+      if (!prev.has(itemId)) return prev;
+      const next = new Set(prev);
+      next.delete(itemId);
+      return next;
+    });
+
+    const ok = await removeItem(itemId);
+    if (ok) {
+      showUndoToast({ id: item.id, name: item.name });
+    }
+  }
+
+  function togglePendingRemove(itemId: string) {
+    if (fadeTimersRef.current.has(itemId)) return;
+    if (itemDeleteDelayMs <= 0) {
+      void commitRemove(itemId);
+      return;
+    }
+    if (pendingTimersRef.current.has(itemId)) {
+      clearPendingRemove(itemId);
+      return;
+    }
+    setPendingRemoveIds((prev) => {
+      const next = new Set(prev);
+      next.add(itemId);
+      return next;
+    });
+    const handle = window.setTimeout(() => {
+      pendingTimersRef.current.delete(itemId);
+      void commitRemove(itemId);
+    }, itemDeleteDelayMs);
+    pendingTimersRef.current.set(itemId, handle);
+  }
+
+  async function undoLastRemove() {
+    if (!undoDelete) return;
+    const snapshot = undoDelete;
+    clearUndoToast();
+    const result = await addItem({ id: snapshot.id });
+    if (!result.ok) {
+      setError(`„${snapshot.name}“ konnte nicht wiederhergestellt werden.`);
     }
   }
 
@@ -554,6 +764,11 @@ export function ListDetail({
       </main>
     );
   }
+
+  const onListIds = new Set(list?.items.map((i) => i.id) ?? []);
+  const topVisible = top
+    .filter((item) => !onListIds.has(item.id))
+    .slice(0, 5);
 
   return (
     <main className="mx-auto flex w-full max-w-lg flex-1 flex-col px-5 py-6">
@@ -764,8 +979,11 @@ export function ListDetail({
         ) : (
           <SortableListItems
             items={list.items}
+            pendingRemoveIds={pendingRemoveIds}
+            removingIds={removingIds}
+            enteringIds={enteringIds}
             departmentsEnabled={departmentsEnabled}
-            onRemove={(id) => void removeItem(id)}
+            onRemove={(id) => togglePendingRemove(id)}
             onReorder={(next) => void reorderItems(next)}
             onDepartmentChange={
               departmentsEnabled
@@ -779,19 +997,44 @@ export function ListDetail({
         )}
       </section>
 
+      {undoDelete ? (
+        <div
+          className="fixed inset-x-0 bottom-6 z-40 flex justify-center px-5"
+          role="status"
+        >
+          <div className="flex max-w-lg items-center gap-3 rounded-2xl border border-hairline bg-panel-strong px-4 py-3 shadow-lg">
+            <p className="min-w-0 flex-1 text-sm">
+              <span className="font-medium">{undoDelete.name}</span>{" "}
+              <span className="text-muted">entfernt</span>
+            </p>
+            <button
+              type="button"
+              onClick={() => void undoLastRemove()}
+              className="shrink-0 rounded-xl bg-accent px-3 py-1.5 text-sm font-semibold text-on-accent"
+            >
+              Rückgängig
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <section>
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
           Top 5
         </h2>
         {top.length === 0 ? (
           <p className="text-sm text-muted">Noch keine Statistik.</p>
+        ) : topVisible.length === 0 ? (
+          <p className="text-sm text-muted">
+            Die häufigsten Artikel sind schon auf der Liste.
+          </p>
         ) : (
           <ul className="divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-panel">
-            {top.map((item) => (
+            {topVisible.map((item) => (
               <li key={item.id}>
                 <button
                   type="button"
-                  disabled={busy || !!list?.items.some((i) => i.id === item.id)}
+                  disabled={busy}
                   onClick={() => void addItem({ id: item.id })}
                   className="flex w-full items-center justify-between px-4 py-3 text-left text-xs disabled:opacity-40"
                 >

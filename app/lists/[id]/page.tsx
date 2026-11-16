@@ -3,7 +3,7 @@ import { connection } from "next/server";
 import { redirect } from "next/navigation";
 import { isAuthenticated } from "@/lib/auth";
 import { ListDetail } from "@/components/ListDetail";
-import { departmentsEnabled } from "@/lib/features";
+import { departmentsEnabled, itemDeleteDelayMs } from "@/lib/features";
 
 async function DetailGate({
   params,
@@ -16,7 +16,11 @@ async function DetailGate({
     redirect("/");
   }
   return (
-    <ListDetail listId={id} departmentsEnabled={departmentsEnabled()} />
+    <ListDetail
+      listId={id}
+      departmentsEnabled={departmentsEnabled()}
+      itemDeleteDelayMs={itemDeleteDelayMs()}
+    />
   );
 }
 
