@@ -1,29 +1,29 @@
-# YASL — manueller Erst-Deploy
+# YASL — manual first deploy
 
-Ziel:
+Target layout:
 
-| Was | Wo |
-|-----|-----|
-| Stack (Compose, Code, `.env`, `config/`) | `/srv/stacks/yasl` |
-| Laufzeitdaten (Listen, Archiv) | `/srv/data/yasl` |
+| What | Where |
+|------|-------|
+| Stack (Compose, code, `.env`, `config/`) | `/srv/stacks/yasl` |
+| Runtime data (lists, archive) | `/srv/data/yasl` |
 | URL | `https://ekz.mewes-im-netz.de` |
-| Upstream | `yasl:3000` im Docker-Netz `proxy` |
+| Upstream | `yasl:3000` on Docker network `proxy` |
 
-Voraussetzungen: Docker + Compose auf dem Server, externes Netz `proxy`, Caddy (oder nginx) im selben Netz, DNS A/AAAA für `ekz.mewes-im-netz.de`.
+Prerequisites: Docker + Compose on the server, external network `proxy`, Caddy (or nginx) on the same network, DNS A/AAAA for `ekz.mewes-im-netz.de`.
 
 ---
 
-## 1. Repo klonen
+## 1. Clone the repo
 
 ```bash
 sudo mkdir -p /srv/stacks /srv/data/yasl
 sudo chown "$USER":"$USER" /srv/stacks /srv/data/yasl
 
-git clone git@github.com:DEIN_USER/yasl.git /srv/stacks/yasl
+git clone git@github.com:YOUR_USER/yasl.git /srv/stacks/yasl
 cd /srv/stacks/yasl
 ```
 
-(URL an dein GitHub-Repo anpassen.)
+(Adjust the URL to your GitHub repo.)
 
 ---
 
@@ -31,56 +31,61 @@ cd /srv/stacks/yasl
 
 ```bash
 cp .env.example .env
-openssl rand -hex 32   # Ausgabe als AUTH_SECRET in .env eintragen
+openssl rand -hex 32   # paste the output as AUTH_SECRET in .env
 $EDITOR .env
 ```
 
-Mindestens:
+Minimum:
 
 ```bash
-AUTH_SECRET=<32+ hex aus openssl>
+AUTH_SECRET=<32+ hex from openssl>
 ```
 
 ---
 
-## 3. Gruppen + Tokens
+## 3. Groups + tokens
 
 ```bash
 cp config/groups.example.yml config/groups.yml
 $EDITOR config/groups.yml
 ```
 
-Beispiel:
+Example:
 
 ```yaml
 groups:
   - id: home
     name: Familie
-    token: "<mindestens-24-zeichen>"
+    token: "<at-least-24-characters>"
+    notifications:
+      enabled: true
+      debounceSeconds: 120
 ```
 
-Tokens mit z. B. `openssl rand -hex 16` erzeugen. `config/groups.yml` nicht committen.
+Generate tokens with e.g. `openssl rand -hex 16`. Do not commit `config/groups.yml`.
+
+For push: run `npx web-push generate-vapid-keys` once and set `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` (plus optional `VAPID_SUBJECT`) in `.env`.
 
 ---
 
-## 4. Datenverzeichnis
+## 4. Data directory
 
 ```bash
 mkdir -p /srv/data/yasl
-# Container läuft als uid 1000 (node) — Schreibrecht sicherstellen:
+# Container runs as uid 1000 (node) — ensure write access:
 sudo chown -R "$(id -u)":1000 /srv/data/yasl
 sudo chmod 775 /srv/data/yasl
 ```
 
-Compose mountet `/srv/data/yasl` → `/app/data`.
+Compose mounts `/srv/data/yasl` → `/app/data`.
 
 ---
 
 ## 5. Caddy
 
-Inhalt von [`Caddyfile.ekz.mewes-im-netz.de`](Caddyfile.ekz.mewes-im-netz.de) in die Caddyfile deines Proxy-Stacks übernehmen (derselbe Stack, der im Netz `proxy` hängt).
+Copy the contents of [`Caddyfile.ekz.mewes-im-netz.de`](Caddyfile.ekz.mewes-im-netz.de) into the Caddyfile of your proxy stack (the same stack attached to the `proxy` network).
 
-Kurz:
+Short version:
 
 ```caddy
 ekz.mewes-im-netz.de {
@@ -97,47 +102,47 @@ ekz.mewes-im-netz.de {
 }
 ```
 
-Caddy neu laden (je nach Setup), z. B.:
+Reload Caddy (depending on your setup), e.g.:
 
 ```bash
-cd /srv/stacks/DEIN-PROXY
+cd /srv/stacks/YOUR-PROXY
 docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
-# oder: docker compose up -d
+# or: docker compose up -d
 ```
 
 ---
 
 ## 6. DNS
 
-A/AAAA-Record `ekz.mewes-im-netz.de` → Server-IP. Caddy holt das Zertifikat automatisch (Let’s Encrypt), sobald der Block aktiv und Port 80/443 erreichbar sind.
+A/AAAA record `ekz.mewes-im-netz.de` → server IP. Caddy obtains the certificate automatically (Let’s Encrypt) once the block is active and ports 80/443 are reachable.
 
 ---
 
-## 7. Container bauen und starten
+## 7. Build and start the container
 
 ```bash
 cd /srv/stacks/yasl
 ./deploy.sh
 ```
 
-Erwartetes Ende der Ausgabe: `YASL_DEPLOY_OK`.
+Expected end of output: `YASL_DEPLOY_OK`.
 
-Kontrolle:
+Verify:
 
 ```bash
 docker compose ps
 curl -sI https://ekz.mewes-im-netz.de | head
 ```
 
-Browser: `https://ekz.mewes-im-netz.de` → Zugangscode aus `groups.yml`.
+Browser: `https://ekz.mewes-im-netz.de` → access token from `groups.yml`.
 
 ---
 
-## Spätere Updates (manuell)
+## Later updates (manual)
 
 ```bash
 cd /srv/stacks/yasl
 ./deploy.sh
 ```
 
-`.env`, `config/groups.yml` und `/srv/data/yasl` bleiben erhalten (nicht im Git).
+`.env`, `config/groups.yml`, and `/srv/data/yasl` are preserved (not in Git).

@@ -5,11 +5,20 @@
 #   openssl rand -hex 16   # generate a token
 #
 # Max 5 groups. Each group's members share the same token.
+#
+# Optional per-group Web Push (requires VAPID_* in .env):
+#   notifications:
+#     enabled: true
+#     debounceSeconds: 120   # wait this long after the last add/remove
 
 groups:
   - id: home
     name: Familie
     token: "replace-with-at-least-24-chars"
+    notifications:
+      enabled: true
+      debounceSeconds: 120
   - id: wg
     name: WG
     token: "another-token-at-least-24ch"
+    # notifications off by default when omitted

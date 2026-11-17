@@ -5,11 +5,21 @@ import { parse as parseYaml } from "yaml";
 
 export const MAX_GROUPS = 5;
 export const MIN_ACCESS_TOKEN_LENGTH = 24;
+export const DEFAULT_NOTIFY_DEBOUNCE_SECONDS = 120;
+export const MIN_NOTIFY_DEBOUNCE_SECONDS = 10;
+export const MAX_NOTIFY_DEBOUNCE_SECONDS = 3600;
+
+export type GroupNotificationsConfig = {
+  enabled: boolean;
+  /** Quiet period after the last list change before a push is sent. */
+  debounceSeconds: number;
+};
 
 export type GroupConfig = {
   id: string;
   name: string;
   token: string;
+  notifications: GroupNotificationsConfig;
 };
 
 type RawGroupsFile = {
@@ -17,6 +27,7 @@ type RawGroupsFile = {
     id?: unknown;
     name?: unknown;
     token?: unknown;
+    notifications?: unknown;
   }>;
 };
 
@@ -33,6 +44,37 @@ function hashToken(value: string): Buffer {
 /** Constant-time compare for variable-length secrets. */
 export function safeEqualString(a: string, b: string): boolean {
   return timingSafeEqual(hashToken(a), hashToken(b));
+}
+
+function parseNotifications(raw: unknown): GroupNotificationsConfig {
+  const defaults: GroupNotificationsConfig = {
+    enabled: false,
+    debounceSeconds: DEFAULT_NOTIFY_DEBOUNCE_SECONDS,
+  };
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return defaults;
+  }
+  const obj = raw as Record<string, unknown>;
+  const enabled =
+    obj.enabled === true ||
+    obj.enabled === 1 ||
+    (typeof obj.enabled === "string" &&
+      ["1", "true", "yes"].includes(obj.enabled.trim().toLowerCase()));
+
+  let debounceSeconds = DEFAULT_NOTIFY_DEBOUNCE_SECONDS;
+  const rawDebounce = obj.debounceSeconds ?? obj.debounce_seconds;
+  if (typeof rawDebounce === "number" && Number.isFinite(rawDebounce)) {
+    debounceSeconds = Math.round(rawDebounce);
+  } else if (typeof rawDebounce === "string" && rawDebounce.trim()) {
+    const n = Number.parseFloat(rawDebounce);
+    if (Number.isFinite(n)) debounceSeconds = Math.round(n);
+  }
+  debounceSeconds = Math.min(
+    MAX_NOTIFY_DEBOUNCE_SECONDS,
+    Math.max(MIN_NOTIFY_DEBOUNCE_SECONDS, debounceSeconds),
+  );
+
+  return { enabled, debounceSeconds };
 }
 
 let cachedPath: string | undefined;
@@ -77,8 +119,8 @@ export function loadGroups(): GroupConfig[] {
       console.error(`[groups] missing ${path} — copy config/groups.example.yml`);
       cachedPath = path;
       cachedMtimeMs = -1;
-      cachedGroups = [];
     }
+    cachedGroups = [];
     return [];
   }
 
@@ -129,7 +171,12 @@ export function loadGroups(): GroupConfig[] {
       continue;
     }
     seenIds.add(id);
-    groups.push({ id, name, token });
+    groups.push({
+      id,
+      name,
+      token,
+      notifications: parseNotifications(entry.notifications),
+    });
     if (groups.length >= MAX_GROUPS) break;
   }
 

@@ -16,6 +16,7 @@ import {
   type DepartmentId,
   type DepartmentSource,
 } from "./departments";
+import { groupDataDir } from "./data-paths";
 import { departmentsEnabled } from "./features";
 import { slugify } from "./slug";
 
@@ -64,14 +65,8 @@ type ArchiveFile = { items?: ArchiveItem[] };
 
 const locks = new Map<string, Promise<unknown>>();
 
-function dataRoot(): string {
-  const override = process.env.DATA_DIR?.trim();
-  if (override) return resolve(/*turbopackIgnore: true*/ override);
-  return join(process.cwd(), "data");
-}
-
 function groupDir(groupId: string): string {
-  return join(dataRoot(), "groups", groupId);
+  return groupDataDir(groupId);
 }
 
 function archivePath(groupId: string): string {

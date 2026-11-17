@@ -9,6 +9,7 @@ import {
 } from "@/lib/store";
 import { departmentsEnabled } from "@/lib/features";
 import { lookupOpenFoodFacts } from "@/lib/open-food-facts";
+import { queueListChangeNotification } from "@/lib/notify-hook";
 
 export const POST = withAuth(async function POST(request, ctx, routeCtx) {
   const params = await routeCtx!.params;
@@ -28,6 +29,7 @@ export const POST = withAuth(async function POST(request, ctx, routeCtx) {
     if (barcode && !id && !name?.trim()) {
       try {
         const result = await addItemToList(ctx.groupId, params.id, { barcode });
+        queueListChangeNotification(ctx.groupId, result.list);
         return NextResponse.json(
           { ok: true, list: result.list, item: result.item, source: "archive" },
           { status: 201 },
@@ -43,6 +45,7 @@ export const POST = withAuth(async function POST(request, ctx, routeCtx) {
             name: off.name,
             offTags: off.categoriesTags,
           });
+          queueListChangeNotification(ctx.groupId, result.list);
           return NextResponse.json(
             {
               ok: true,
@@ -70,6 +73,7 @@ export const POST = withAuth(async function POST(request, ctx, routeCtx) {
       id,
       barcode,
     });
+    queueListChangeNotification(ctx.groupId, result.list);
     return NextResponse.json(
       { ok: true, list: result.list, item: result.item, source: result.source },
       { status: 201 },

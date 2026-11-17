@@ -66,8 +66,22 @@ mkdir -p /srv/data/yasl
 | `DATA_DIR` | Inside container: `/app/data` (host: `/srv/data/yasl`) |
 | `GROUPS_CONFIG_FILE` | Path to groups YAML (default `config/groups.yml`) |
 | `ENABLE_DEPARTMENTS` | Optional; `true` / `1` / `yes` enables aisle categories + „Nach Laufweg“ |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Optional; Web Push keys (`npx web-push generate-vapid-keys`) |
+| `VAPID_SUBJECT` | Optional; `mailto:` or `https:` contact for VAPID (default `mailto:yasl@localhost`) |
 
 Group tokens live only in `config/groups.yml` (gitignored).
+
+### Group notifications (Web Push)
+
+Per group in `config/groups.yml`:
+
+```yaml
+notifications:
+  enabled: true
+  debounceSeconds: 120
+```
+
+After the last add/remove on a list, YASL waits `debounceSeconds` (default 120) and then notifies every device that subscribed with that group token. Open app windows get an in-app toast instead of an OS notification; background devices get a browser/OS push. Needs HTTPS (or localhost) and VAPID keys in `.env`.
 
 ## Usage
 
