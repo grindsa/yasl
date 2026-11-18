@@ -39,6 +39,9 @@ yarn-error.log*
 # Runtime shopping-list data
 /data/
 
+# Backup logs
+/logs/
+
 # vercel
 .vercel
 
