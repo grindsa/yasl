@@ -19,16 +19,21 @@ export const POST = withAuth(async function POST(request, ctx, routeCtx) {
     name?: unknown;
     id?: unknown;
     barcode?: unknown;
+    note?: unknown;
   } | null;
   const name = typeof body?.name === "string" ? body.name : undefined;
   const id = typeof body?.id === "string" ? body.id : undefined;
   const barcode = typeof body?.barcode === "string" ? body.barcode : undefined;
+  const note = typeof body?.note === "string" ? body.note : undefined;
 
   try {
     // Barcode without name: try archive, then Open Food Facts, then ask client for a name.
     if (barcode && !id && !name?.trim()) {
       try {
-        const result = await addItemToList(ctx.groupId, params.id, { barcode });
+        const result = await addItemToList(ctx.groupId, params.id, {
+          barcode,
+          note,
+        });
         queueListChangeNotification(ctx.groupId, result.list);
         return NextResponse.json(
           { ok: true, list: result.list, item: result.item, source: "archive" },
@@ -44,6 +49,7 @@ export const POST = withAuth(async function POST(request, ctx, routeCtx) {
             barcode: off.barcode,
             name: off.name,
             offTags: off.categoriesTags,
+            note,
           });
           queueListChangeNotification(ctx.groupId, result.list);
           return NextResponse.json(
@@ -72,6 +78,7 @@ export const POST = withAuth(async function POST(request, ctx, routeCtx) {
       name,
       id,
       barcode,
+      note,
     });
     queueListChangeNotification(ctx.groupId, result.list);
     return NextResponse.json(

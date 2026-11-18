@@ -23,6 +23,7 @@ type ListItem = {
   id: string;
   name: string;
   addedAt: string;
+  note?: string;
   department?: DepartmentId;
 };
 type ShoppingList = {
@@ -105,6 +106,7 @@ const ITEM_FADE_MS = 320;
 type UndoDelete = {
   id: string;
   name: string;
+  note?: string;
 };
 
 export function ListDetail({
@@ -121,6 +123,7 @@ export function ListDetail({
   const [top, setTop] = useState<ArchiveItem[]>([]);
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<ArchiveItem[]>([]);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [topTick, setTopTick] = useState(0);
@@ -335,14 +338,19 @@ export function ListDetail({
     name?: string;
     id?: string;
     barcode?: string;
+    note?: string;
   }): Promise<{ ok: boolean; error?: string; itemName?: string }> {
     setBusy(true);
     setError(null);
+    const trimmedNote = payload.note?.trim();
     try {
       const res = await fetch(`/api/lists/${listId}/items`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          ...payload,
+          ...(trimmedNote ? { note: trimmedNote } : {}),
+        }),
       });
       const data = (await res.json()) as {
         ok?: boolean;
@@ -565,12 +573,17 @@ export function ListDetail({
 
     const ok = await removeItem(itemId);
     if (ok) {
-      showUndoToast({ id: item.id, name: item.name });
+      showUndoToast({
+        id: item.id,
+        name: item.name,
+        ...(item.note ? { note: item.note } : {}),
+      });
     }
   }
 
   function togglePendingRemove(itemId: string) {
     if (fadeTimersRef.current.has(itemId)) return;
+    setEditingNoteId((current) => (current === itemId ? null : current));
     if (itemDeleteDelayMs <= 0) {
       void commitRemove(itemId);
       return;
@@ -595,7 +608,10 @@ export function ListDetail({
     if (!undoDelete) return;
     const snapshot = undoDelete;
     clearUndoToast();
-    const result = await addItem({ id: snapshot.id });
+    const result = await addItem({
+      id: snapshot.id,
+      ...(snapshot.note ? { note: snapshot.note } : {}),
+    });
     if (!result.ok) {
       setError(`„${snapshot.name}“ konnte nicht wiederhergestellt werden.`);
     }
@@ -685,6 +701,52 @@ export function ListDetail({
       (s) => s.name.toLowerCase() === name.toLowerCase(),
     );
     void addItem(exact ? { id: exact.id } : { name });
+  }
+
+  function startEditNote(itemId: string) {
+    if (pendingTimersRef.current.has(itemId)) {
+      clearPendingRemove(itemId);
+    }
+    setEditingNoteId(itemId);
+  }
+
+  function cancelEditNote() {
+    setEditingNoteId(null);
+  }
+
+  async function saveItemNote(itemId: string, nextNote: string) {
+    setEditingNoteId(null);
+    const prev = listRef.current;
+    const trimmed = nextNote.trim();
+    if (prev) {
+      setList({
+        ...prev,
+        items: prev.items.map((i) => {
+          if (i.id !== itemId) return i;
+          if (trimmed) return { ...i, note: trimmed };
+          const { note: _removed, ...rest } = i;
+          return rest;
+        }),
+      });
+    }
+    try {
+      const res = await fetch(`/api/lists/${listId}/items/${itemId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note: trimmed }),
+      });
+      if (!res.ok) {
+        if (prev) setList(prev);
+        setError("Notiz konnte nicht gespeichert werden.");
+        return;
+      }
+      const data = (await res.json()) as { list: ShoppingList };
+      revisionRef.current = data.list.revision;
+      setList(data.list);
+    } catch {
+      if (prev) setList(prev);
+      setError("Notiz konnte nicht gespeichert werden.");
+    }
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -982,8 +1044,12 @@ export function ListDetail({
             pendingRemoveIds={pendingRemoveIds}
             removingIds={removingIds}
             enteringIds={enteringIds}
+            editingNoteId={editingNoteId}
             departmentsEnabled={departmentsEnabled}
             onRemove={(id) => togglePendingRemove(id)}
+            onEditNote={startEditNote}
+            onSaveNote={(id, note) => void saveItemNote(id, note)}
+            onCancelNote={cancelEditNote}
             onReorder={(next) => void reorderItems(next)}
             onDepartmentChange={
               departmentsEnabled

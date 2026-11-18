@@ -1,6 +1,13 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import {
   DndContext,
   closestCenter,
@@ -29,8 +36,11 @@ type ListItem = {
   id: string;
   name: string;
   addedAt: string;
+  note?: string;
   department?: DepartmentId;
 };
+
+const LONG_PRESS_MS = 480;
 
 function GripIcon({ className }: { className?: string }) {
   return (
@@ -55,17 +65,32 @@ function SortableRow({
   pendingRemove,
   removing,
   entering,
+  editingNote,
   onRemove,
+  onEditNote,
+  onSaveNote,
+  onCancelNote,
   onDepartmentChange,
 }: {
   item: ListItem;
   pendingRemove: boolean;
   removing: boolean;
   entering: boolean;
+  editingNote: boolean;
   onRemove: (id: string) => void;
+  onEditNote: (id: string) => void;
+  onSaveNote: (id: string, note: string) => void;
+  onCancelNote: () => void;
   onDepartmentChange?: (id: string, department: DepartmentId) => void;
 }) {
   const [enterVisible, setEnterVisible] = useState(!entering);
+  const [draftNote, setDraftNote] = useState(item.note ?? "");
+  const noteInputRef = useRef<HTMLInputElement>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressedRef = useRef(false);
+  const pointerIdRef = useRef<number | null>(null);
+  const skipBlurSaveRef = useRef(false);
+  const noteCommittedRef = useRef(false);
 
   useEffect(() => {
     if (!entering) {
@@ -79,6 +104,24 @@ function SortableRow({
     return () => window.cancelAnimationFrame(raf);
   }, [entering]);
 
+  useEffect(() => {
+    if (!editingNote) return;
+    noteCommittedRef.current = false;
+    setDraftNote(item.note ?? "");
+    queueMicrotask(() => {
+      noteInputRef.current?.focus();
+      noteInputRef.current?.select();
+    });
+  }, [editingNote, item.note]);
+
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current != null) {
+        window.clearTimeout(longPressTimerRef.current);
+      }
+    };
+  }, []);
+
   const {
     attributes,
     listeners,
@@ -86,7 +129,7 @@ function SortableRow({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: item.id, disabled: removing });
+  } = useSortable({ id: item.id, disabled: removing || editingNote });
 
   const collapsed = removing || (entering && !enterVisible);
   const fadeTransition = "opacity 320ms ease-out, max-height 320ms ease-out";
@@ -97,11 +140,79 @@ function SortableRow({
       : fadeTransition,
     zIndex: isDragging ? 2 : undefined,
     opacity: collapsed ? 0 : isDragging ? 0.92 : 1,
-    maxHeight: collapsed ? 0 : "6rem",
+    maxHeight: collapsed ? 0 : editingNote || item.note ? "9rem" : "6rem",
   };
 
   const department = item.department ?? "other";
   const marked = pendingRemove || removing;
+
+  function clearLongPressTimer() {
+    if (longPressTimerRef.current != null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+
+  function onRowPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    if (removing || editingNote || e.button !== 0) return;
+    longPressedRef.current = false;
+    pointerIdRef.current = e.pointerId;
+    clearLongPressTimer();
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTimerRef.current = null;
+      longPressedRef.current = true;
+      onCancelNote();
+      onRemove(item.id);
+    }, LONG_PRESS_MS);
+  }
+
+  function onRowPointerUp(e: ReactPointerEvent<HTMLDivElement>) {
+    if (pointerIdRef.current !== e.pointerId) return;
+    pointerIdRef.current = null;
+    clearLongPressTimer();
+    if (removing || editingNote) return;
+    if (longPressedRef.current) {
+      longPressedRef.current = false;
+      return;
+    }
+    if (pendingRemove) {
+      onRemove(item.id);
+      return;
+    }
+    onEditNote(item.id);
+  }
+
+  function onRowPointerCancel(e: ReactPointerEvent<HTMLDivElement>) {
+    if (pointerIdRef.current !== e.pointerId) return;
+    pointerIdRef.current = null;
+    clearLongPressTimer();
+    longPressedRef.current = false;
+  }
+
+  function commitNote() {
+    if (noteCommittedRef.current) return;
+    noteCommittedRef.current = true;
+    onSaveNote(item.id, draftNote);
+  }
+
+  function onNoteBlur() {
+    if (skipBlurSaveRef.current) {
+      skipBlurSaveRef.current = false;
+      return;
+    }
+    commitNote();
+  }
+
+  function onNoteKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitNote();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      skipBlurSaveRef.current = true;
+      onCancelNote();
+    }
+  }
 
   return (
     <li
@@ -125,22 +236,58 @@ function SortableRow({
       >
         <GripIcon className="h-5 w-5" />
       </button>
-      <button
-        type="button"
-        onClick={() => onRemove(item.id)}
-        aria-pressed={pendingRemove}
-        disabled={removing}
-        aria-label={
-          pendingRemove
-            ? `${item.name} — Löschen abbrechen`
-            : `${item.name} — zum Löschen vormerken`
-        }
-        className={`min-w-0 flex-1 px-2 py-3.5 text-left text-base transition hover:bg-accent-soft/40 active:bg-accent-soft/60 ${
-          marked ? "text-muted" : ""
-        }`}
-      >
-        {item.name}
-      </button>
+      {editingNote ? (
+        <div className="min-w-0 flex-1 px-2 py-2">
+          <p className="mb-1 truncate text-base">{item.name}</p>
+          <input
+            ref={noteInputRef}
+            type="text"
+            value={draftNote}
+            onChange={(e) => setDraftNote(e.target.value)}
+            onBlur={onNoteBlur}
+            onKeyDown={onNoteKeyDown}
+            maxLength={200}
+            placeholder="Notiz (Stückzahl, Gewicht…)"
+            aria-label={`Notiz für ${item.name}`}
+            className="w-full rounded-lg border border-hairline bg-panel-strong px-2.5 py-1.5 text-sm outline-none ring-accent focus:ring-2"
+          />
+        </div>
+      ) : (
+        <div
+          role="button"
+          tabIndex={removing ? -1 : 0}
+          onPointerDown={onRowPointerDown}
+          onPointerUp={onRowPointerUp}
+          onPointerCancel={onRowPointerCancel}
+          onKeyDown={(e) => {
+            if (removing) return;
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              if (pendingRemove) onRemove(item.id);
+              else onEditNote(item.id);
+            } else if (e.key === "Delete" || e.key === "Backspace") {
+              e.preventDefault();
+              onRemove(item.id);
+            }
+          }}
+          aria-pressed={pendingRemove}
+          aria-label={
+            pendingRemove
+              ? `${item.name} — Löschen abbrechen`
+              : item.note
+                ? `${item.name}, ${item.note} — tippen für Notiz, halten zum Löschen`
+                : `${item.name} — tippen für Notiz, halten zum Löschen`
+          }
+          className={`min-w-0 flex-1 cursor-pointer px-2 py-3.5 text-left transition hover:bg-accent-soft/40 active:bg-accent-soft/60 ${
+            marked ? "text-muted" : ""
+          }`}
+        >
+          <span className="block text-base">{item.name}</span>
+          {item.note ? (
+            <span className="mt-0.5 block text-sm text-muted">{item.note}</span>
+          ) : null}
+        </div>
+      )}
       {onDepartmentChange ? (
         <label className="flex shrink-0 items-center pr-2">
           <span className="sr-only">Abteilung für {item.name}</span>
@@ -180,8 +327,12 @@ export function SortableListItems({
   pendingRemoveIds,
   removingIds,
   enteringIds,
+  editingNoteId,
   onReorder,
   onRemove,
+  onEditNote,
+  onSaveNote,
+  onCancelNote,
   onDragStateChange,
   onDepartmentChange,
   departmentsEnabled = false,
@@ -190,8 +341,12 @@ export function SortableListItems({
   pendingRemoveIds?: ReadonlySet<string>;
   removingIds?: ReadonlySet<string>;
   enteringIds?: ReadonlySet<string>;
+  editingNoteId?: string | null;
   onReorder: (next: ListItem[]) => void;
   onRemove: (id: string) => void;
+  onEditNote: (id: string) => void;
+  onSaveNote: (id: string, note: string) => void;
+  onCancelNote: () => void;
   onDragStateChange?: (dragging: boolean) => void;
   onDepartmentChange?: (id: string, department: DepartmentId) => void;
   departmentsEnabled?: boolean;
@@ -255,7 +410,11 @@ export function SortableListItems({
                   pendingRemove={pendingRemoveIds?.has(item.id) ?? false}
                   removing={removingIds?.has(item.id) ?? false}
                   entering={enteringIds?.has(item.id) ?? false}
+                  editingNote={editingNoteId === item.id}
                   onRemove={onRemove}
+                  onEditNote={onEditNote}
+                  onSaveNote={onSaveNote}
+                  onCancelNote={onCancelNote}
                   onDepartmentChange={
                     departmentsEnabled ? onDepartmentChange : undefined
                   }

@@ -42,9 +42,29 @@ export type ListItem = {
   id: string;
   name: string;
   addedAt: string;
+  /** Optional free-text (qty, weight, brand…); list-scoped only. */
+  note?: string;
   /** Present on API responses; joined from archive. */
   department?: DepartmentId;
 };
+
+const NOTE_MAX_LENGTH = 200;
+
+function normalizeNote(note: unknown): string | undefined {
+  if (typeof note !== "string") return undefined;
+  const trimmed = note.trim().slice(0, NOTE_MAX_LENGTH);
+  return trimmed || undefined;
+}
+
+function leanListItem(item: ListItem): ListItem {
+  const note = normalizeNote(item.note);
+  return {
+    id: item.id,
+    name: item.name,
+    addedAt: item.addedAt,
+    ...(note ? { note } : {}),
+  };
+}
 
 export type ShoppingList = {
   id: string;
@@ -215,18 +235,14 @@ function enrichListItems(
   if (!departmentsEnabled()) {
     return {
       ...list,
-      items: list.items.map(({ id, name, addedAt }) => ({
-        id,
-        name,
-        addedAt,
-      })),
+      items: list.items.map(leanListItem),
     };
   }
   const byId = new Map(archive.map((a) => [a.id, a]));
   return {
     ...list,
     items: list.items.map((item) => ({
-      ...item,
+      ...leanListItem(item),
       department:
         byId.get(item.id)?.department ??
         classifyItem({ name: item.name }).department,
@@ -239,13 +255,15 @@ function normalizeList(raw: ShoppingList | null, fallbackId: string): ShoppingLi
     return null;
   }
   const items = Array.isArray(raw.items)
-    ? raw.items.filter(
-        (i) =>
-          i &&
-          typeof i.id === "string" &&
-          typeof i.name === "string" &&
-          typeof i.addedAt === "string",
-      )
+    ? raw.items
+        .filter(
+          (i): i is ListItem =>
+            !!i &&
+            typeof i.id === "string" &&
+            typeof i.name === "string" &&
+            typeof i.addedAt === "string",
+        )
+        .map(leanListItem)
     : [];
   return {
     id: raw.id || fallbackId,
@@ -282,10 +300,10 @@ async function loadList(
 
 async function saveList(groupId: string, list: ShoppingList): Promise<void> {
   await ensureGroupDirs(groupId);
-  // Department is archive-owned; keep list YAML lean.
+  // Department is archive-owned; keep list YAML lean (note stays list-scoped).
   const toSave: ShoppingList = {
     ...list,
-    items: list.items.map(({ id, name, addedAt }) => ({ id, name, addedAt })),
+    items: list.items.map(leanListItem),
   };
   await writeYamlAtomic(listPath(groupId, list.id), toSave);
 }
@@ -429,6 +447,7 @@ export async function addItemToList(
     name?: string;
     id?: string;
     barcode?: string;
+    note?: string;
     offTags?: string[] | null;
   },
 ): Promise<{ list: ShoppingList; item: ListItem; source?: string }> {
@@ -535,10 +554,12 @@ export async function addItemToList(
     archiveItem.lastAddedAt = now;
     await saveArchive(groupId, archive);
 
+    const note = normalizeNote(input.note);
     const item: ListItem = {
       id: archiveItem.id,
       name: archiveItem.name,
       addedAt: now,
+      ...(note ? { note } : {}),
       ...(departmentsEnabled() && archiveItem.department
         ? { department: archiveItem.department }
         : {}),
@@ -568,6 +589,33 @@ export async function removeItemFromList(
       throw new StoreError("item_not_found", 404);
     }
     list.items = next;
+    list.revision += 1;
+    list.updatedAt = new Date().toISOString();
+    await saveList(groupId, list);
+    const archive = await loadArchive(groupId);
+    return enrichListItems(list, archive);
+  });
+}
+
+/** Set or clear list-scoped free-text note on an item. */
+export async function updateListItemNote(
+  groupId: string,
+  listId: string,
+  itemId: string,
+  note: unknown,
+): Promise<ShoppingList> {
+  return withGroupLock(groupId, async () => {
+    const list = await loadList(groupId, listId);
+    if (!list) throw new StoreError("not_found", 404);
+    const index = list.items.findIndex((i) => i.id === itemId);
+    if (index < 0) throw new StoreError("item_not_found", 404);
+
+    const current = list.items[index]!;
+    const normalized = normalizeNote(note);
+    list.items[index] = leanListItem({
+      ...current,
+      note: normalized,
+    });
     list.revision += 1;
     list.updatedAt = new Date().toISOString();
     await saveList(groupId, list);
