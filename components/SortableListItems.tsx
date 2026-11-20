@@ -5,8 +5,8 @@ import {
   useEffect,
   useRef,
   useState,
+  type FormEvent,
   type KeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
   DndContext,
@@ -40,8 +40,6 @@ type ListItem = {
   department?: DepartmentId;
 };
 
-const LONG_PRESS_MS = 480;
-
 function GripIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -60,37 +58,70 @@ function GripIcon({ className }: { className?: string }) {
   );
 }
 
+function PencilIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  );
+}
+
+function SaveIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
+      <path d="M17 21v-8H7v8" />
+      <path d="M7 3v5h8" />
+    </svg>
+  );
+}
+
 function SortableRow({
   item,
   pendingRemove,
   removing,
   entering,
-  editingNote,
+  editing,
   onRemove,
-  onEditNote,
-  onSaveNote,
-  onCancelNote,
+  onEdit,
+  onSaveEdit,
+  onCancelEdit,
   onDepartmentChange,
 }: {
   item: ListItem;
   pendingRemove: boolean;
   removing: boolean;
   entering: boolean;
-  editingNote: boolean;
+  editing: boolean;
   onRemove: (id: string) => void;
-  onEditNote: (id: string) => void;
-  onSaveNote: (id: string, note: string) => void;
-  onCancelNote: () => void;
+  onEdit: (id: string) => void;
+  onSaveEdit: (id: string, next: { name: string; note: string }) => void;
+  onCancelEdit: () => void;
   onDepartmentChange?: (id: string, department: DepartmentId) => void;
 }) {
   const [enterVisible, setEnterVisible] = useState(!entering);
+  const [draftName, setDraftName] = useState(item.name);
   const [draftNote, setDraftNote] = useState(item.note ?? "");
-  const noteInputRef = useRef<HTMLInputElement>(null);
-  const longPressTimerRef = useRef<number | null>(null);
-  const longPressedRef = useRef(false);
-  const pointerIdRef = useRef<number | null>(null);
-  const skipBlurSaveRef = useRef(false);
-  const noteCommittedRef = useRef(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!entering) {
@@ -105,22 +136,14 @@ function SortableRow({
   }, [entering]);
 
   useEffect(() => {
-    if (!editingNote) return;
-    noteCommittedRef.current = false;
+    if (!editing) return;
+    setDraftName(item.name);
     setDraftNote(item.note ?? "");
     queueMicrotask(() => {
-      noteInputRef.current?.focus();
-      noteInputRef.current?.select();
+      nameInputRef.current?.focus();
+      nameInputRef.current?.select();
     });
-  }, [editingNote, item.note]);
-
-  useEffect(() => {
-    return () => {
-      if (longPressTimerRef.current != null) {
-        window.clearTimeout(longPressTimerRef.current);
-      }
-    };
-  }, []);
+  }, [editing, item.name, item.note]);
 
   const {
     attributes,
@@ -129,7 +152,7 @@ function SortableRow({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: item.id, disabled: removing || editingNote });
+  } = useSortable({ id: item.id, disabled: removing || editing });
 
   const collapsed = removing || (entering && !enterVisible);
   const fadeTransition = "opacity 320ms ease-out, max-height 320ms ease-out";
@@ -140,77 +163,23 @@ function SortableRow({
       : fadeTransition,
     zIndex: isDragging ? 2 : undefined,
     opacity: collapsed ? 0 : isDragging ? 0.92 : 1,
-    maxHeight: collapsed ? 0 : editingNote || item.note ? "9rem" : "6rem",
+    maxHeight: collapsed ? 0 : editing ? "11rem" : item.note ? "8rem" : "6rem",
   };
 
   const department = item.department ?? "other";
   const marked = pendingRemove || removing;
 
-  function clearLongPressTimer() {
-    if (longPressTimerRef.current != null) {
-      window.clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
+  function commitEdit(e?: FormEvent) {
+    e?.preventDefault();
+    const name = draftName.trim();
+    if (!name) return;
+    onSaveEdit(item.id, { name, note: draftNote });
   }
 
-  function onRowPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
-    if (removing || editingNote || e.button !== 0) return;
-    longPressedRef.current = false;
-    pointerIdRef.current = e.pointerId;
-    clearLongPressTimer();
-    longPressTimerRef.current = window.setTimeout(() => {
-      longPressTimerRef.current = null;
-      longPressedRef.current = true;
-      onCancelNote();
-      onRemove(item.id);
-    }, LONG_PRESS_MS);
-  }
-
-  function onRowPointerUp(e: ReactPointerEvent<HTMLDivElement>) {
-    if (pointerIdRef.current !== e.pointerId) return;
-    pointerIdRef.current = null;
-    clearLongPressTimer();
-    if (removing || editingNote) return;
-    if (longPressedRef.current) {
-      longPressedRef.current = false;
-      return;
-    }
-    if (pendingRemove) {
-      onRemove(item.id);
-      return;
-    }
-    onEditNote(item.id);
-  }
-
-  function onRowPointerCancel(e: ReactPointerEvent<HTMLDivElement>) {
-    if (pointerIdRef.current !== e.pointerId) return;
-    pointerIdRef.current = null;
-    clearLongPressTimer();
-    longPressedRef.current = false;
-  }
-
-  function commitNote() {
-    if (noteCommittedRef.current) return;
-    noteCommittedRef.current = true;
-    onSaveNote(item.id, draftNote);
-  }
-
-  function onNoteBlur() {
-    if (skipBlurSaveRef.current) {
-      skipBlurSaveRef.current = false;
-      return;
-    }
-    commitNote();
-  }
-
-  function onNoteKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") {
+  function onEditKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Escape") {
       e.preventDefault();
-      commitNote();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      skipBlurSaveRef.current = true;
-      onCancelNote();
+      onCancelEdit();
     }
   }
 
@@ -236,59 +205,79 @@ function SortableRow({
       >
         <GripIcon className="h-5 w-5" />
       </button>
-      {editingNote ? (
-        <div className="min-w-0 flex-1 px-2 py-2">
-          <p className="mb-1 truncate text-base">{item.name}</p>
-          <input
-            ref={noteInputRef}
-            type="text"
-            value={draftNote}
-            onChange={(e) => setDraftNote(e.target.value)}
-            onBlur={onNoteBlur}
-            onKeyDown={onNoteKeyDown}
-            maxLength={200}
-            placeholder="Notiz (Stückzahl, Gewicht…)"
-            aria-label={`Notiz für ${item.name}`}
-            className="w-full rounded-lg border border-hairline bg-panel-strong px-2.5 py-1.5 text-sm outline-none ring-accent focus:ring-2"
-          />
-        </div>
+      {editing ? (
+        <form onSubmit={commitEdit} className="min-w-0 flex-1 px-2 py-2">
+          <label className="mb-1.5 block">
+            <span className="sr-only">Artikelname</span>
+            <input
+              ref={nameInputRef}
+              type="text"
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              onKeyDown={onEditKeyDown}
+              maxLength={120}
+              required
+              className="w-full rounded-lg border border-hairline bg-panel-strong px-2.5 py-1.5 text-base outline-none ring-accent focus:ring-2"
+            />
+          </label>
+          <div className="flex items-center gap-1.5">
+            <label className="min-w-0 flex-1">
+              <span className="sr-only">Notiz</span>
+              <input
+                type="text"
+                value={draftNote}
+                onChange={(e) => setDraftNote(e.target.value)}
+                onKeyDown={onEditKeyDown}
+                maxLength={200}
+                placeholder="Notiz (Stückzahl, Gewicht…)"
+                className="w-full rounded-lg border border-hairline bg-panel-strong px-2.5 py-1.5 text-sm outline-none ring-accent focus:ring-2"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={!draftName.trim()}
+              aria-label="Speichern"
+              title="Speichern"
+              className="flex shrink-0 items-center justify-center rounded-lg bg-accent p-2 text-on-accent disabled:opacity-50"
+            >
+              <SaveIcon className="h-5 w-5" />
+            </button>
+          </div>
+        </form>
       ) : (
-        <div
-          role="button"
-          tabIndex={removing ? -1 : 0}
-          onPointerDown={onRowPointerDown}
-          onPointerUp={onRowPointerUp}
-          onPointerCancel={onRowPointerCancel}
-          onKeyDown={(e) => {
-            if (removing) return;
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              if (pendingRemove) onRemove(item.id);
-              else onEditNote(item.id);
-            } else if (e.key === "Delete" || e.key === "Backspace") {
-              e.preventDefault();
-              onRemove(item.id);
+        <>
+          <button
+            type="button"
+            onClick={() => onRemove(item.id)}
+            aria-pressed={pendingRemove}
+            disabled={removing}
+            aria-label={
+              pendingRemove
+                ? `${item.name} — Löschen abbrechen`
+                : `${item.name} — zum Löschen vormerken`
             }
-          }}
-          aria-pressed={pendingRemove}
-          aria-label={
-            pendingRemove
-              ? `${item.name} — Löschen abbrechen`
-              : item.note
-                ? `${item.name}, ${item.note} — tippen für Notiz, halten zum Löschen`
-                : `${item.name} — tippen für Notiz, halten zum Löschen`
-          }
-          className={`min-w-0 flex-1 cursor-pointer px-2 py-3.5 text-left transition hover:bg-accent-soft/40 active:bg-accent-soft/60 ${
-            marked ? "text-muted" : ""
-          }`}
-        >
-          <span className="block text-base">{item.name}</span>
-          {item.note ? (
-            <span className="mt-0.5 block text-sm text-muted">{item.note}</span>
-          ) : null}
-        </div>
+            className={`min-w-0 flex-1 px-2 py-3.5 text-left transition hover:bg-accent-soft/40 active:bg-accent-soft/60 ${
+              marked ? "text-muted" : ""
+            }`}
+          >
+            <span className="block text-base">{item.name}</span>
+            {item.note ? (
+              <span className="mt-0.5 block text-sm text-muted">{item.note}</span>
+            ) : null}
+          </button>
+          <button
+            type="button"
+            onClick={() => onEdit(item.id)}
+            disabled={removing}
+            aria-label={`${item.name} ändern`}
+            title="Ändern"
+            className="flex shrink-0 items-center px-2.5 text-muted transition hover:text-foreground"
+          >
+            <PencilIcon className="h-5 w-5" />
+          </button>
+        </>
       )}
-      {onDepartmentChange ? (
+      {onDepartmentChange && !editing ? (
         <label className="flex shrink-0 items-center pr-2">
           <span className="sr-only">Abteilung für {item.name}</span>
           <select
@@ -327,12 +316,12 @@ export function SortableListItems({
   pendingRemoveIds,
   removingIds,
   enteringIds,
-  editingNoteId,
+  editingItemId,
   onReorder,
   onRemove,
-  onEditNote,
-  onSaveNote,
-  onCancelNote,
+  onEdit,
+  onSaveEdit,
+  onCancelEdit,
   onDragStateChange,
   onDepartmentChange,
   departmentsEnabled = false,
@@ -341,12 +330,12 @@ export function SortableListItems({
   pendingRemoveIds?: ReadonlySet<string>;
   removingIds?: ReadonlySet<string>;
   enteringIds?: ReadonlySet<string>;
-  editingNoteId?: string | null;
+  editingItemId?: string | null;
   onReorder: (next: ListItem[]) => void;
   onRemove: (id: string) => void;
-  onEditNote: (id: string) => void;
-  onSaveNote: (id: string, note: string) => void;
-  onCancelNote: () => void;
+  onEdit: (id: string) => void;
+  onSaveEdit: (id: string, next: { name: string; note: string }) => void;
+  onCancelEdit: () => void;
   onDragStateChange?: (dragging: boolean) => void;
   onDepartmentChange?: (id: string, department: DepartmentId) => void;
   departmentsEnabled?: boolean;
@@ -410,11 +399,11 @@ export function SortableListItems({
                   pendingRemove={pendingRemoveIds?.has(item.id) ?? false}
                   removing={removingIds?.has(item.id) ?? false}
                   entering={enteringIds?.has(item.id) ?? false}
-                  editingNote={editingNoteId === item.id}
+                  editing={editingItemId === item.id}
                   onRemove={onRemove}
-                  onEditNote={onEditNote}
-                  onSaveNote={onSaveNote}
-                  onCancelNote={onCancelNote}
+                  onEdit={onEdit}
+                  onSaveEdit={onSaveEdit}
+                  onCancelEdit={onCancelEdit}
                   onDepartmentChange={
                     departmentsEnabled ? onDepartmentChange : undefined
                   }

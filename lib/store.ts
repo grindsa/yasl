@@ -597,29 +597,98 @@ export async function removeItemFromList(
   });
 }
 
-/** Set or clear list-scoped free-text note on an item. */
-export async function updateListItemNote(
+/**
+ * Update list item note and/or rename the shared archive product.
+ * Name changes sync to every list that contains the same archive id.
+ */
+export async function updateListItem(
   groupId: string,
   listId: string,
   itemId: string,
-  note: unknown,
+  input: { name?: unknown; note?: unknown },
 ): Promise<ShoppingList> {
+  const hasName = Object.prototype.hasOwnProperty.call(input, "name");
+  const hasNote = Object.prototype.hasOwnProperty.call(input, "note");
+  if (!hasName && !hasNote) {
+    throw new StoreError("nothing_to_update", 400);
+  }
+
   return withGroupLock(groupId, async () => {
     const list = await loadList(groupId, listId);
     if (!list) throw new StoreError("not_found", 404);
     const index = list.items.findIndex((i) => i.id === itemId);
     if (index < 0) throw new StoreError("item_not_found", 404);
 
+    const now = new Date().toISOString();
+    let archive = await loadArchive(groupId);
+    let nextName: string | undefined;
+
+    if (hasName) {
+      if (typeof input.name !== "string") {
+        throw new StoreError("name_required", 400);
+      }
+      const trimmed = input.name.trim();
+      if (!trimmed) throw new StoreError("name_required", 400);
+
+      const archiveItem = archive.find((a) => a.id === itemId);
+      if (!archiveItem) throw new StoreError("archive_not_found", 404);
+
+      const nameLower = trimmed.toLowerCase();
+      const clash = archive.find(
+        (a) => a.id !== itemId && a.name.toLowerCase() === nameLower,
+      );
+      if (clash) throw new StoreError("name_taken", 409);
+
+      if (archiveItem.name !== trimmed) {
+        archiveItem.name = trimmed;
+        if (
+          departmentsEnabled() &&
+          archiveItem.departmentSource !== "user"
+        ) {
+          const classified = classifyItem({ name: trimmed });
+          archiveItem.department = classified.department;
+          archiveItem.departmentSource = classified.source;
+        }
+        await saveArchive(groupId, archive);
+
+        const dir = listsDir(groupId);
+        if (existsSync(dir)) {
+          const files = await readdir(dir);
+          for (const file of files) {
+            if (!file.endsWith(".yml") || file.includes(".tmp.")) continue;
+            const otherId = file.slice(0, -4);
+            const other =
+              otherId === listId ? list : await loadList(groupId, otherId);
+            if (!other) continue;
+            let changed = false;
+            other.items = other.items.map((item) => {
+              if (item.id !== itemId || item.name === trimmed) return item;
+              changed = true;
+              return leanListItem({ ...item, name: trimmed });
+            });
+            if (!changed) continue;
+            other.revision += 1;
+            other.updatedAt = now;
+            if (otherId !== listId) {
+              await saveList(groupId, other);
+            }
+          }
+        }
+      }
+      nextName = trimmed;
+    }
+
     const current = list.items[index]!;
-    const normalized = normalizeNote(note);
+    const normalizedNote = hasNote ? normalizeNote(input.note) : current.note;
     list.items[index] = leanListItem({
       ...current,
-      note: normalized,
+      name: nextName ?? current.name,
+      note: normalizedNote,
     });
     list.revision += 1;
-    list.updatedAt = new Date().toISOString();
+    list.updatedAt = now;
     await saveList(groupId, list);
-    const archive = await loadArchive(groupId);
+    archive = await loadArchive(groupId);
     return enrichListItems(list, archive);
   });
 }

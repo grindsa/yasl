@@ -123,7 +123,7 @@ export function ListDetail({
   const [top, setTop] = useState<ArchiveItem[]>([]);
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<ArchiveItem[]>([]);
-  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [topTick, setTopTick] = useState(0);
@@ -340,6 +340,7 @@ export function ListDetail({
     barcode?: string;
     note?: string;
   }): Promise<{ ok: boolean; error?: string; itemName?: string }> {
+    setEditingItemId(null);
     setBusy(true);
     setError(null);
     const trimmedNote = payload.note?.trim();
@@ -391,6 +392,7 @@ export function ListDetail({
     async (barcode: string) => {
       if (scanBusyRef.current) return;
       scanBusyRef.current = true;
+      setEditingItemId(null);
       setScanFeedback({
         kind: "pending",
         title: "Code erkannt…",
@@ -583,7 +585,8 @@ export function ListDetail({
 
   function togglePendingRemove(itemId: string) {
     if (fadeTimersRef.current.has(itemId)) return;
-    setEditingNoteId((current) => (current === itemId ? null : current));
+    // Selecting another article while editing cancels the draft.
+    setEditingItemId(null);
     if (itemDeleteDelayMs <= 0) {
       void commitRemove(itemId);
       return;
@@ -703,29 +706,37 @@ export function ListDetail({
     void addItem(exact ? { id: exact.id } : { name });
   }
 
-  function startEditNote(itemId: string) {
+  function startEditItem(itemId: string) {
     if (pendingTimersRef.current.has(itemId)) {
       clearPendingRemove(itemId);
     }
-    setEditingNoteId(itemId);
+    setEditingItemId(itemId);
   }
 
-  function cancelEditNote() {
-    setEditingNoteId(null);
+  function cancelEditItem() {
+    setEditingItemId(null);
   }
 
-  async function saveItemNote(itemId: string, nextNote: string) {
-    setEditingNoteId(null);
+  async function saveItemEdit(
+    itemId: string,
+    next: { name: string; note: string },
+  ) {
+    setEditingItemId(null);
     const prev = listRef.current;
-    const trimmed = nextNote.trim();
+    const trimmedName = next.name.trim();
+    const trimmedNote = next.note.trim();
+    if (!trimmedName) {
+      setError("Name darf nicht leer sein.");
+      return;
+    }
     if (prev) {
       setList({
         ...prev,
         items: prev.items.map((i) => {
           if (i.id !== itemId) return i;
-          if (trimmed) return { ...i, note: trimmed };
+          if (trimmedNote) return { ...i, name: trimmedName, note: trimmedNote };
           const { note: _removed, ...rest } = i;
-          return rest;
+          return { ...rest, name: trimmedName };
         }),
       });
     }
@@ -733,19 +744,28 @@ export function ListDetail({
       const res = await fetch(`/api/lists/${listId}/items/${itemId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note: trimmed }),
+        body: JSON.stringify({ name: trimmedName, note: trimmedNote }),
       });
-      if (!res.ok) {
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        list?: ShoppingList;
+      };
+      if (!res.ok || !data.list) {
         if (prev) setList(prev);
-        setError("Notiz konnte nicht gespeichert werden.");
+        if (data.error === "name_taken") {
+          setError("Dieser Name ist schon im Archiv vergeben.");
+        } else {
+          setError("Artikel konnte nicht gespeichert werden.");
+        }
         return;
       }
-      const data = (await res.json()) as { list: ShoppingList };
       revisionRef.current = data.list.revision;
       setList(data.list);
+      setTopTick((n) => n + 1);
     } catch {
       if (prev) setList(prev);
-      setError("Notiz konnte nicht gespeichert werden.");
+      setError("Artikel konnte nicht gespeichert werden.");
     }
   }
 
@@ -1044,12 +1064,12 @@ export function ListDetail({
             pendingRemoveIds={pendingRemoveIds}
             removingIds={removingIds}
             enteringIds={enteringIds}
-            editingNoteId={editingNoteId}
+            editingItemId={editingItemId}
             departmentsEnabled={departmentsEnabled}
             onRemove={(id) => togglePendingRemove(id)}
-            onEditNote={startEditNote}
-            onSaveNote={(id, note) => void saveItemNote(id, note)}
-            onCancelNote={cancelEditNote}
+            onEdit={startEditItem}
+            onSaveEdit={(id, next) => void saveItemEdit(id, next)}
+            onCancelEdit={cancelEditItem}
             onReorder={(next) => void reorderItems(next)}
             onDepartmentChange={
               departmentsEnabled

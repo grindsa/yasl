@@ -3,7 +3,7 @@ import { withAuth } from "@/lib/with-auth";
 import { readJsonBody } from "@/lib/request-guard";
 import {
   removeItemFromList,
-  updateListItemNote,
+  updateListItem,
   StoreError,
 } from "@/lib/store";
 import { queueListChangeNotification } from "@/lib/notify-hook";
@@ -26,25 +26,39 @@ export const DELETE = withAuth(async function DELETE(_request, ctx, routeCtx) {
   }
 });
 
-/** Body: `{ note: string }` — empty string clears the note. */
+/** Body: `{ name?: string, note?: string }` — empty note clears it. */
 export const PATCH = withAuth(async function PATCH(request, ctx, routeCtx) {
   const params = await routeCtx!.params;
   const parsed = await readJsonBody(request);
   if (!parsed.ok) return parsed.response;
-  const body = parsed.body as { note?: unknown } | null;
-  if (!body || !("note" in body) || typeof body.note !== "string") {
+  const body = parsed.body as { name?: unknown; note?: unknown } | null;
+  if (!body || typeof body !== "object") {
     return NextResponse.json(
-      { ok: false, error: "note_required" },
+      { ok: false, error: "invalid_body" },
+      { status: 400 },
+    );
+  }
+
+  const input: { name?: unknown; note?: unknown } = {};
+  if (Object.prototype.hasOwnProperty.call(body, "name")) {
+    input.name = body.name;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "note")) {
+    input.note = body.note;
+  }
+  if (!("name" in input) && !("note" in input)) {
+    return NextResponse.json(
+      { ok: false, error: "nothing_to_update" },
       { status: 400 },
     );
   }
 
   try {
-    const list = await updateListItemNote(
+    const list = await updateListItem(
       ctx.groupId,
       params.id,
       params.itemId,
-      body.note,
+      input,
     );
     queueListChangeNotification(ctx.groupId, list);
     return NextResponse.json({ ok: true, list });
