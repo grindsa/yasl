@@ -934,6 +934,7 @@ export function ListDetail({
             ref={inputRef}
             type="text"
             value={query}
+            onFocus={() => setEditingItemId(null)}
             onChange={(e) => {
               const value = e.target.value;
               setQuery(value);
